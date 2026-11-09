@@ -1,0 +1,131 @@
+# Askos-V1-80M main config (spec v7 §3). All hyperparameters live here (rule 1).
+# Deviations from the spec are listed in NOTES.md.
+run:
+  name: askos_v1_80m
+  seed: 1234
+  budget_gpu_hours: 24
+  reserve_frac: 0.10
+  ref_model_gpu_hours: 1.0
+
+data:
+  read_gb: 32
+  decay_frac: 0.20
+  l3_gb: 30
+  val_mb: 100
+  max_epochs_small_source: 4
+  min_doc_bytes: 200
+  minhash: {perms: 128, shingle: 5, threshold: 0.8}
+  toxicity_threshold: 0.8
+  commercial_safe: false        # true drops research_only sources
+
+model:
+  vocab: 260                    # 0..255 bytes, 256 BOS, 257 EOS, 258 PAD, 259 SEP
+  d_byte: 512
+  d_model: 768
+  norm_eps: 1.0e-6
+  logit_softcap: 30.0
+  byte_encoder: {layers: 3, heads: 8, head_dim: 64, window: 512, mlp: 2048, rope_base: 10000}
+  byte_decoder: {layers: 3, heads: 8, head_dim: 64, window: 512, mlp: 2048, rope_base: 10000}
+  backbone: {blocks: 10, heads: 12, head_dim: 64, mlp: 3072, rope_base: 50000, value_residual_init: 0.5}
+  dechunk_pos_emb: 64
+
+chunker:
+  target_mean_bytes: 6
+  max_len: 16
+  entropy_threshold_bits: 4.0
+  controller_ema: 0.99
+  controller_gain: 0.05
+  freeze_controller_last_frac: 0.10
+  phase_fixed_frac: 0.02
+  max_chunks_per_seq: 2048
+  impl: numba                   # numba | triton
+
+cursor:
+  K: 16                         # hypothesis slots per document
+  sigma0: 0.05                  # substitution prob inside the scan
+  hazard: 0.01                  # rho: chance per byte that a copy ends
+  gap_extend: 0.8               # EDIT mode: chance the edit goes on for one more byte
+  max_gap: 16
+  resync: {p: 0.1, probe_bytes: 4, back: 16, ahead: 32}
+  drop_logodds: -9.2            # log(1e-4)
+  window: {behind: 32, ahead: 96}   # corpus window = 128 bytes, cursor starts at index 32
+  samples_per_anchor: 4
+  copy_mass: 0.9                # no chunk boundary while the top candidate byte has this much weight
+  copy_max_len: 64
+  attn_proposals_per_chunk: 2
+  feature_dim: 64
+  draft_len: 8
+  em: {prior_init: {doc: 0.02, corpus: 0.02, attn: 0.05}, decay: 0.99, pseudo_count: 100,
+       lookahead: 4, min_prior: 1.0e-4, max_prior: 0.99}
+  bins: {evidence: 16, distance: 8, count: 6, attn: 8, run: 8, mass: 10}
+  calib_init: {scale: 1.0}      # bias[type] and bias_run[bin] start at 0
+  sigma_head_bias_init: -3.0    # sigmoid(-3) ≈ 0.05
+  impl: triton                  # triton | numba (reference)
+
+saegim:
+  keys_per_half: 8192           # slots S = 8192^2 = 67,108,864
+  heads: 4
+  half_dim: 64
+  topk_half: 32
+  topk_read: 32
+  value_dim: 128
+  value_init_std: 0.02
+  score_row_tile: 8192
+  read_after_block: 5
+  write: {start_step: 500, gate_top_frac: 0.10, per_head_topk: 4, eta: 1.0, n_cap: 64,
+          halve_every_frac: 0.10, max_delta_rms: 1.0, grad_rms_ema: 0.99, gate_ema: 0.99}
+  synthetic: {hidden: 512}      # P_delta: 1280 -> 512 -> 128
+  utility: {ema: 0.99, evict_every_steps: 1000, evict_bottom_frac: 0.001}
+  probe: {every_steps: 500, chunks: 1000}
+  gd_fallback_lr: 5.0e-3        # only when features.saegim_write = false (SparseAdam on the table)
+
+l3:
+  shards: 4                     # 4 x 7.5 GB
+  sa_sample_rate: 16
+  anchor_every_bytes: 8
+  max_match: 255
+  samples_per_shard: 2
+  doc_separator_byte: 255       # 0xFF never appears in valid UTF-8
+  index_dropout: {k_choices: [0, 1, 2, 4], probs: [0.1, 0.3, 0.3, 0.3]}
+
+doc_hash: {orders: [32, 16, 8], max_verify: 255}
+
+selection:
+  group_size: 4
+  keep_per_group: 1
+  random_frac: 0.10
+  ref_model: {layers: 4, d: 256, heads: 4, window: 256, mlp: 1024, train_bytes: 1.0e9}
+
+train:
+  seq_len: 8192
+  read_batch: 256
+  study_batch: 64
+  read_microbatch: 64
+  long_context: {last_frac: 0.10, seq_len: 32768, read_batch: 64, study_batch: 16}
+  total_study_steps: 15000
+  schedule: {warmup_steps: 500, decay_frac: 0.20, final_lr_frac: 0.10}
+  grad_clip: 1.0
+  loss_weights: {s1: 0.2, z: 1.0e-4, delta: 0.05, proposal: 0.05}
+  optim:
+    muon: {lr: 2.0e-3, weight_decay: 0.1, momentum: 0.95, nesterov: true, ns_steps: 5, update_scale: 0.2}
+    adamw: {lr: 2.0e-3, embed_lr: 4.0e-3, betas: [0.9, 0.95], weight_decay: 0.0}
+    codebook_lr: 5.0e-4
+    aux_heads_lr: 1.0e-3
+  checkpoint_every_hours: 1      # spec: 2. Changed to 1 (NOTES.md D-03): Modal preemption risk vs 18 GB state upload
+  val: {every_steps: 500, bytes: 1.0e7}
+
+features:                       # one flag per piece of the two inventions; all must be switchable
+  cursor: true                  # false = plain neural softmax output
+  cursor_doc: true
+  cursor_corpus: true
+  cursor_attn: true
+  cursor_edits: true
+  cursor_em: true               # false = fixed priors (cursor.em.prior_init)
+  cursor_copy_mode: true
+  cursor_draft: true
+  cursor_proposal_loss: true
+  index_dropout: true
+  saegim: true                  # false = no memory layer
+  saegim_write: true            # false = the table is trained by gradient descent (S1's degenerate case)
+  saegim_synthetic: true        # false = only studied chunks are inscribed
+  saegim_select: true           # false = study a random quarter

@@ -1,0 +1,13 @@
+# Smoke overrides (spec v7 §14), deep-merged onto askos_80m.yaml.
+data: {read_gb: 0.2, l3_gb: 0.05, val_mb: 5}
+model:
+  d_byte: 128
+  d_model: 192
+  byte_encoder: {layers: 1, head_dim: 16}
+  byte_decoder: {layers: 1, head_dim: 16}
+  backbone: {blocks: 4, heads: 4, head_dim: 48, mlp: 768}
+cursor: {K: 8}
+saegim: {keys_per_half: 256, value_dim: 32, read_after_block: 1, probe: {every_steps: 200, chunks: 100}}
+l3: {shards: 2}
+train: {seq_len: 2048, read_batch: 32, study_batch: 8, read_microbatch: 32, total_study_steps: 2000,
+        long_context: {seq_len: 4096, read_batch: 16, study_batch: 4}}

@@ -1,0 +1,42 @@
+# Infrastructure settings (Modal, Hugging Face, setup probes). Not model hyperparameters.
+# The names under `modal:` must match the constants at the top of modal_app.py (tests/test_infra.py checks).
+
+modal:
+  app: askos-v1-80m
+  volume: askos-data              # re-creatable data only (raw, clean, bins, L3 index, anchors). NOTES.md D-01
+  hf_secret: huggingface          # created by a human: modal secret create huggingface HF_TOKEN=...
+  gpus:                           # which Modal GPU each stage uses (NOTES.md D-02)
+    setup_probe: [L4, L40S, H100]
+    cursor_kernel: L4             # notebook 04
+    saegim: L40S                  # notebook 05
+    smoke: L4                     # notebook 06
+    ref_model: L4                 # notebook 07
+    main: H100                    # notebooks 08, 09, 10
+
+hub:
+  state_repo: askos-v1-80m-state  # private model repo under the token owner: checkpoints, logs, reports
+  log_upload_every_min: 30
+
+probe:
+  volume_write_mb: 512
+  hf_read_mb: 256
+  hf_public_glob: datasets/HuggingFaceFW/fineweb-edu/sample/10BT/*.parquet
+  matmul_n: 8192
+  matmul_iters: 20
+  flash_doc_lens: [300, 1000, 724]
+  flash_heads: 12
+  flash_head_dim: 64
+  flash_tol: 0.02
+  hbm_target_gb: {H100: 75}       # spec §12: HBM <= 75 GB in the main run
+  http_timeout_s: 20
+  hosts:                          # non-HF sources of data/sources.yaml (warning only)
+    - https://archive.org/details/stackexchange
+    - https://www.rfc-editor.org/
+    - https://www.gutenberg.org/
+    - https://dumps.wikimedia.org/
+    - https://lore.kernel.org/
+    - https://lists.debian.org/
+    - https://irclogs.ubuntu.com/
+    - https://www.catb.org/jargon/
+    - https://openstax.org/
+    - https://zissou.infosci.cornell.edu/convokit/

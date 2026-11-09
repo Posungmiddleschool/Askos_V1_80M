@@ -1,0 +1,93 @@
+# Source manifest (spec v7 §5.1). read_gb = weight x data.read_gb, l3_gb = big sources renormalised to data.l3_gb.
+- name: fineweb_edu
+  weight: 0.20
+  read_gb: 6.40
+  l3_gb: 8.33
+  sources:
+    - {kind: hf, id: HuggingFaceFW/fineweb-edu, config: sample-100BT, text: text, filter: "int_score >= 4"}
+  license: odc-by
+- name: dclm_top
+  weight: 0.10
+  read_gb: 3.20
+  l3_gb: 4.17
+  sources:
+    - {kind: hf, id: mlfoundations/dclm-baseline-1.0, text: text, filter: "top 10% by the dataset's fastText quality score", verify: true}
+  license: cc-by-4.0
+- name: code
+  weight: 0.10
+  read_gb: 3.20
+  l3_gb: 4.17
+  sources:
+    - {kind: hf, id: codeparrot/github-code-clean, text: code, filter: "license in [mit, apache-2.0, bsd-2-clause, bsd-3-clause]; top half by a public Stack-Edu classifier, fallback comment-ratio and line-length heuristics", verify: true}
+  license: per-file permissive
+- name: korean_web
+  weight: 0.10
+  read_gb: 3.20
+  l3_gb: 4.17
+  sources:
+    - {kind: hf, id: HuggingFaceFW/fineweb-2, config: kor_Hang, text: text, filter: "language_score >= 0.9"}
+  license: odc-by
+- name: papers_books
+  weight: 0.09
+  read_gb: 2.88
+  l3_gb: 3.75
+  sources:
+    - {kind: hf, id: allenai/peS2o, text: text}
+    - {kind: hf, id: togethercomputer/RedPajama-Data-1T, config: arxiv, text: text, verify: true}
+    - {kind: url, id: "OpenStax textbooks (CC BY)", verify: true}
+    - {kind: dump, id: "enwikibooks and kowikibooks dumps"}
+  license: open per item
+- name: math
+  weight: 0.08
+  read_gb: 2.56
+  l3_gb: 3.33
+  sources:
+    - {kind: hf, id: HuggingFaceTB/finemath, config: finemath-4plus, text: text}
+    - {kind: hf, id: open-web-math/open-web-math, text: text}
+    - {kind: hf, id: EleutherAI/proof-pile-2, config: algebraic-stack, text: text}
+  license: odc-by and per source
+- name: stackexchange
+  weight: 0.08
+  read_gb: 2.56
+  sources:
+    - {kind: archive, id: "archive.org/details/stackexchange", sites: [math, cs, physics, unix, codegolf, skeptics, puzzling, retrocomputing, philosophy], filter: "answers with Score >= 5 joined to their question"}
+  license: cc-by-sa
+- name: geek_debate
+  weight: 0.06
+  read_gb: 1.92
+  sources:
+    - {kind: bigquery, id: bigquery-public-data.hacker_news.full, filter: "threads with story score >= 100", verify: true}
+    - {kind: url, id: "lore.kernel.org LKML and lists.debian.org archives", verify: true}
+    - {kind: url, id: "irclogs.ubuntu.com"}
+    - {kind: convokit, id: winning-args-corpus}
+  license: author copyright
+  research_only: true
+- name: namuwiki
+  weight: 0.06
+  read_gb: 1.92
+  sources:
+    - {kind: hf, id: heegyu/namuwiki-extracted, text: text, verify: true}
+  license: cc-by-nc-sa
+  research_only: true
+- name: wikipedia
+  weight: 0.05
+  read_gb: 1.60
+  l3_gb: 2.08
+  sources:
+    - {kind: hf, id: wikimedia/wikipedia, config: [20231101.en, 20231101.ko], text: text}
+  license: cc-by-sa
+- name: hacker_docs
+  weight: 0.04
+  read_gb: 1.28
+  sources:
+    - {kind: url, id: "rfc-editor.org bulk RFC archive"}
+    - {kind: url, id: "man-pages project tarball and Debian manpages"}
+    - {kind: url, id: "catb.org Jargon File"}
+  license: free redistribution
+- name: rebel_classics
+  weight: 0.04
+  read_gb: 1.28
+  sources:
+    - {kind: gutenberg, authors: [Twain, Swift, Wilde, Bierce, Paine, Thoreau, Carroll, Conan Doyle, Verne, Wells, Voltaire, Galileo, Abbott], verify: true}
+    - {kind: dump, id: "kowikisource: 이상, 채만식, 김유정"}
+  license: public domain
