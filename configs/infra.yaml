@@ -37,6 +37,6 @@ probe:
     - https://lore.kernel.org/
     - https://lists.debian.org/
     - https://irclogs.ubuntu.com/
-    - https://www.catb.org/jargon/
+    - http://www.catb.org/jargon/         # catb.org has no HTTPS; notebook 01 verifies the tarball checksum
     - https://openstax.org/
     - https://zissou.infosci.cornell.edu/convokit/

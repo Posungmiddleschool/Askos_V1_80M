@@ -20,7 +20,7 @@ from common.log import log, run_header
 from common.validate import check_config, check_smoke, check_sources
 from setup_check import Checks
 
-PACKAGES = ["torch", "triton", "flash-attn", "numpy", "numba", "datasets", "huggingface_hub", "hf_xet",
+PACKAGES = ["torch", "triton", "flash-attn", "numpy", "numba", "datasets", "huggingface_hub", "hf-xet",
             "zstandard", "datasketch", "PyYAML", "pytest", "psutil", "pybind11", "einops"]
 
 
@@ -31,6 +31,11 @@ def packages():
             v[p] = md.version(p)
         except md.PackageNotFoundError:
             v[p] = None
+    try:  # hf-xet must also be usable by huggingface_hub, not just installed
+        from huggingface_hub.utils import is_xet_available
+        v["xet_usable_by_hub"] = bool(is_xet_available()) or None
+    except ImportError:
+        v["xet_usable_by_hub"] = None
     missing = [k for k, x in v.items() if x is None]
     return {"ok": not missing, "python": platform.python_version(), "versions": v, "missing": missing}
 

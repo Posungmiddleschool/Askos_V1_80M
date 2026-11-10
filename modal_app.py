@@ -38,7 +38,7 @@ image = (
     .apt_install("build-essential", "cmake", "git", "pkg-config", "zstd", "libzstd-dev", "curl")
     .pip_install("torch==2.6.0", index_url=TORCH_INDEX)           # bundles triton 3.2.0
     .pip_install("einops==0.8.0", FLASH_ATTN_WHEEL)
-    .pip_install("numpy==1.26.4", "numba==0.60.0", "datasets==3.2.0", "huggingface_hub[hf_xet]==0.30.2",
+    .pip_install("numpy==1.26.4", "numba==0.60.0", "datasets==3.2.0", "huggingface_hub==0.33.4", "hf-xet==1.1.5",
                  "zstandard==0.23.0", "datasketch==1.6.5", "pyyaml==6.0.2", "pytest==8.3.4",
                  "psutil==6.1.1", "pybind11==2.13.6")
     .env({"HF_HOME": "/root/hf_cache", "HF_XET_HIGH_PERFORMANCE": "1", "PYTHONUNBUFFERED": "1",
@@ -166,6 +166,9 @@ def _summary_md(summary):
         for c in rep.get("checks", []):
             d = {k: x for k, x in c["detail"].items() if k != "trace"}
             lines.append(f"- {c['status']} · {c['name']} · `{json.dumps(d, ensure_ascii=False, default=str)[:300]}`")
+            if c["status"] != "통과":   # never hide the reason behind the 300-char cut
+                why = {k: d[k] for k in ("missing", "unreachable", "problems", "error", "note") if d.get(k)}
+                lines.append(f"  - 원인: `{json.dumps(why, ensure_ascii=False, default=str)}`")
         lines.append("")
     return "\n".join(lines)
 
