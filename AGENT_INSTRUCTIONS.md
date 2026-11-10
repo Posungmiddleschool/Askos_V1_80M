@@ -102,7 +102,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 ### 시간대별로 기대하는 로그 (`modal app logs askos-v1-80m`)
 | 시각 | 줄 |
 |---|---|
-| 0~15분 | 이미지 재빌드(apt: p7zip, rsync, poppler, groff). 이미지가 바뀌었으니 첫 실행 한 번만 |
+| 0~15분 | 이미지 재빌드(apt: p7zip, rsync, groff). 이미지가 바뀌었으니 첫 실행 한 번만 |
 | 시작 | `[download] 12개 소스 병렬 시작: [...]` |
 | 소스마다 | `실행 정보: ...`, `다운로드 시작: <소스> 목표 X GB`, `할당 1차: ...` |
 | 진행 중 | `저장: <하위 소스> 유닛 i/N · 누적 X GB · 문서 N` (256MB마다) |
@@ -124,7 +124,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 | `md5 mismatch` (StackExchange) | archive.org 파일 손상이나 변경입니다. 보고합니다 |
 | `verify failed: ...` | 데이터셋 필드나 구조가 바뀐 것입니다. 파일을 고치지 말고 오류 줄 그대로 보고합니다 |
 | 소스 판정 `소스 소진(작은 소스)` | 정상일 수 있습니다(예: hacker_docs, rebel_classics). 부족분은 노트북 02의 분할 규칙이 FineWeb-Edu로 채웁니다 |
-| geek_debate에서 `lore_lkml` 0바이트, `skipped` | 정상입니다. lore.kernel.org가 robots.txt로 막았습니다(NOTES.md D-14). 남는 몫은 HN 스레드가 채웁니다 |
+| 하위 소스가 몇 MB에서 `소진` (libretexts, pressbooks, oercommons, PEP, kowikibooks) | 정상입니다. 원래 작은 데이터셋이고, 남은 몫은 같은 소스의 큰 하위 소스가 채웁니다 |
 | Volume 용량 부족 | 보고합니다(raw는 압축해서 약 30~40GB 예상) |
 | `ENDED WITH ERROR` | 재시작하지 말고 `runs/01_download/error.txt`를 보고합니다 |
 

@@ -11,7 +11,7 @@
 | D-07 | 저장소 루트가 구현서 §4의 `askos/`입니다. 여기에 `common/`, `setup_check/`, `modal_app.py`, `ops.py`를 더합니다 | 가이드의 "train.py 한 파일" 대신 구현서의 패키지 구조를 따르고, 노트북을 얇게 두는 원칙만 지킵니다 |
 | D-08 | 인프라 이름(Modal 앱, Volume, 시크릿, 상태 저장소, 단계별 GPU)은 `configs/infra.yaml`에 둡니다 | 규칙 1(숫자는 설정에만). 모델 설정(`askos_80m.yaml`)은 구현서와 같게 유지합니다(D-03 제외) |
 | D-09 | raw 문서에 `text, source, doc_id` 외에 작은 `meta` 사전을 둡니다. 예: `int_score`, `se_score`, `hn_score`, `code_score`, `url` | 구현서 §5.5-3의 감쇠 스트림이 FineWeb-Edu 5점, 고득점 StackExchange, HN 고득점, 교육 점수 상위 코드를 골라야 해서 필요합니다 |
-| D-10 | code 소스의 "상위 절반"은 구현서가 허용한 **대체 휴리스틱**(주석 비율, 줄 길이: `data/filters.py:code_quality`)으로 고릅니다. 기준값은 처음 2개 파일의 중앙값으로 정해 고정합니다 | Stack-Edu 분류기는 언어마다 GPU 분류기가 따로 필요해 v1에서는 쓰지 않습니다. v2 후보입니다 |
+| D-10 | ~~code 소스의 "상위 절반"은 구현서가 허용한 **대체 휴리스틱**(주석 비율, 줄 길이: `data/filters.py:code_quality`)으로 고릅니다. 기준값은 처음 2개 파일의 중앙값으로 정해 고정합니다~~ **(v1.1에서 폐기: code는 Stack-Edu 분류기 점수가 붙은 common-pile/stackv2_edu_filtered로 교체, D-22)** | Stack-Edu 분류기는 언어마다 GPU 분류기가 따로 필요해 v1에서는 쓰지 않습니다. v2 후보입니다 |
 | D-11 | 한 소스 안의 하위 소스 몫: 1차에 남은 목표를 활성 하위 소스에 똑같이 나누고, 소진된 하위 소스가 못 채운 몫은 다음 차례에 나머지가 나눠 채웁니다 | 구현서에 하위 소스별 비율이 없습니다. 가장 단순한 해석입니다 |
 | D-12 | HF 데이터는 `load_dataset(streaming=True)` 대신, 데이터셋 카드의 `configs → data_files`(또는 `configs/download.yaml`의 `hf.files`)로 고른 train 파일을 **한 커밋에 고정**해 직접 읽습니다 | 문서는 같습니다. 대신 (파일, 행) 단위로 정확히 이어 받을 수 있고, hf-xet으로 병렬로 받을 수 있습니다. 리비전은 D1.md에 기록합니다 |
 | D-13 | hacker_docs: RFC는 rsync로 받고(실패하면 rfc-index와 HTTP로 한 편씩), man-pages는 최신 upstream tarball을 groff로 렌더링합니다. "Debian manpages"는 upstream과 겹쳐 받지 않습니다. Jargon File은 4.4.7 텍스트판을 씁니다 | rfc-editor.org의 bulk tar 주소가 사라졌습니다(404, 2026-11-10 확인) |
@@ -21,5 +21,20 @@
 | D-17 | peS2o는 v2를 씁니다 | 저장소 README가 "peS2o V2 (Latest)"라고 합니다. v3는 문서화돼 있지 않습니다 |
 | D-18 | StackExchange: 질문 하나당 문서 하나로 만들고, 점수 5 이상 답변을 모두 점수 순으로 붙입니다 | 답변마다 문서를 만들면 질문이 반복돼 중복 제거(§5.4)와 충돌합니다 |
 | D-19 | DCLM "상위 10%": 처음 4개 파일의 fastText 점수 90% 분위수를 기준값으로 고정합니다 | 전체 분포는 4T 토큰을 다 읽어야 알 수 있습니다. DCLM 샤드는 무작위 분할이라 앞 파일로 추정해도 됩니다 |
-| D-20 | irclogs는 2025-10-31부터 거꾸로 하루씩 받고 입장·퇴장·닉 변경 줄을 뺍니다. lists.debian.org는 요청 6,000회까지만 보냅니다(초당 1회) | 재현성(고정 날짜)과 사이트 부담 제한 때문입니다 |
-| D-21 | OpenStax: CC BY 책은 `retired` 상태도 포함합니다 | 2026-11-10 기준 CC BY 38권 가운데 앞쪽 표본이 모두 `retired`였습니다(새 판은 NC-SA로 바뀐 경우가 많음). 옛 판도 CC BY 그대로이고, 판 사이의 근사 중복은 §5.4가 처리합니다 |
+| D-20 | ~~irclogs는 2025-10-31부터 거꾸로 하루씩 받고 입장·퇴장·닉 변경 줄을 뺍니다. lists.debian.org는 요청 6,000회까지만 보냅니다(초당 1회)~~ **(v1.1에서 폐기: irclogs, lists.debian.org 제거, D-22)** | 재현성(고정 날짜)과 사이트 부담 제한 때문입니다 |
+| D-21 | ~~OpenStax: CC BY 책은 `retired` 상태도 포함합니다~~ **(v1.1에서 폐기: OpenStax 제거, D-22)** | 2026-11-10 기준 CC BY 38권 가운데 앞쪽 표본이 모두 `retired`였습니다(새 판은 NC-SA로 바뀐 경우가 많음). 옛 판도 CC BY 그대로이고, 판 사이의 근사 중복은 §5.4가 처리합니다 |
+| D-22 | **v1.1 소스 교체 (구상자 지시 2026-11-10: "질이 낮다고 판단하는 것은 최신 고품질 공개 데이터셋으로 모두 바꿔라").** 소스 12개의 이름, 비중, read_gb, l3_gb는 구현서와 같고, 하위 소스만 바꿉니다. 아래 "v1.1 교체표" 참고 | 기준: (1) HF 토큰 말고 키나 서비스 계정이 필요 없음 (2) 구현서 §1-5: 다른 모델이 생성한 텍스트·합성 데이터는 쓰지 않음. 모델은 문서를 *고르는 데만* 썼고(FineWeb-Edu 방식) 본문은 원문 그대로 (3) 라이선스가 명시돼 있음. 이 세션에서 각 데이터셋을 실제로 작게 받아 필드와 본문을 확인했습니다 |
+
+## v1.1 교체표 (D-22)
+
+| 소스 | 뺀 것 (이유) | 넣은 것 | 확인 |
+|---|---|---|---|
+| code | codeparrot/github-code-clean + 주석·줄 길이 휴리스틱 (구현서의 대체안일 뿐) | **common-pile/stackv2_edu_filtered**: Stack-Edu 분류기 점수가 붙은 공개 라이선스 코드 본문, 83GB. 구현서가 원래 원한 "Stack-Edu 분류기 상위 절반"을 그대로 적용합니다. 파일이 언어별로 묶여 있어 시드 1234로 섞습니다 | 기준값 2.47 (2파일, 159만 개), PHP/BSD-3 예시 확인 |
+| korean_web | fineweb-2 kor_Hang만 (언어 점수만 있고 품질 필터 없음) | **HuggingFaceFW/finepdfs-edu kor_Hang** (교육 점수로 고른 PDF 본문) + **eliceai/korean-webtext-edu** (교육 점수 3 이상, 2026-01) + fineweb-2 kor_Hang(나머지 채움) | 둘 다 실제 문서 확인. korean-webtext-edu의 원본(HAERAE-HUB/KOREAN-WEBTEXT) 라이선스는 명시돼 있지 않아 D1.md에 기록 |
+| papers_books | RedPajama arxiv (외부 호스트, 2023, 라이선스 혼재), OpenStax PDF→pdftotext (머리글·쪽 번호·단 깨짐) | **common-pile/arxiv_papers_filtered** (공개 라이선스 arXiv 본문, LaTeXML), **HuggingFaceFW/finepdfs-edu eng_Latn** (교육 점수 PDF), **common-pile doab / libretexts / pressbooks / oercommons** (오픈 도서·교과서 정제 텍스트). peS2o v2와 위키책 덤프는 그대로 | 4MB씩 받아 확인 |
+| math | open-web-math (2023, FineMath보다 낮은 품질) | **openbmb/UltraData-Math L2-preview** (2026-02, 원문 웹 수학을 분류기로 고른 단계. 합성인 L3는 쓰지 않음) | 품질 라벨 4·5 원문 확인 |
+| geek_debate | irclogs (빈 파일과 짧은 채팅이 대부분), lists.debian.org (ITP 버그 메일 위주, 요청 한도 때문에 양이 적음), LKML (robots.txt 금지) | **common-pile/github_archive_filtered** (공개 라이선스 저장소의 이슈·PR 토론, 15GB) + **common-pile/python_enhancement_proposals_filtered** (PEP 전문). HN(open-index)과 ConvoKit CMV는 그대로 | 확인 |
+| wikipedia | wikimedia/wikipedia 20231101 (3년 전) | **HuggingFaceFW/finewiki ko, en** (2024-10 덤프, 수식을 살린 깔끔한 추출) | 확인 |
+
+그대로 둔 것: fineweb_edu(int_score ≥ 4), dclm_top(상위 10%), finemath-4plus, proof-pile-2 algebraic-stack, StackExchange(점수 ≥ 5, archive.org), HN, ConvoKit, 나무위키, RFC, man-pages, Jargon File, Gutenberg, kowikisource, 위키책.
+검토했지만 쓰지 않은 것: Nemotron-CC-Math(LLM으로 본문을 다시 씀: §1-5 위반), UltraData-Math L3(합성), FineWeb2-HQ(한국어 없음), Stack-Edu 원본(본문이 S3에 있어 AWS 키 필요).

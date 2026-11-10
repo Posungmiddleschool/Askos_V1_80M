@@ -37,7 +37,7 @@ FLASH_ATTN_WHEEL = ("https://github.com/Dao-AILab/flash-attention/releases/downl
 image = (
     modal.Image.from_registry("nvidia/cuda:12.4.1-devel-ubuntu22.04", add_python="3.11")
     .apt_install("build-essential", "cmake", "git", "pkg-config", "zstd", "libzstd-dev", "curl",
-                 "p7zip-full", "rsync", "poppler-utils", "groff-base")
+                 "p7zip-full", "rsync", "groff-base")
     .pip_install("torch==2.6.0", index_url=TORCH_INDEX)           # bundles triton 3.2.0
     .pip_install("einops==0.8.0", FLASH_ATTN_WHEEL)
     .pip_install("numpy==1.26.4", "numba==0.60.0", "datasets==3.2.0", "huggingface_hub==0.33.4", "hf-xet==1.1.5",

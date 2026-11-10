@@ -128,14 +128,6 @@ def test_modal_source_names_match_manifest():
     assert names == [s["name"] for s in load_sources()]
 
 
-def test_code_quality_and_quantile():
-    commented = "# compute the sum\n# of a list\ndef total(xs):\n    # loop over items\n    return sum(xs)\n"
-    minified = "var a=function(b){return b.map(function(c){return c*2}).filter(Boolean).reduce(function(d,e){return d+e},0)};" * 5
-    assert filters.code_quality(commented) > filters.code_quality(minified)
-    assert filters.quantile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.9) == 9
-    assert filters.quantile([5], 0.5) == 5
-
-
 def test_gutenberg_and_wikisource_filters():
     assert filters.gutenberg_author_match("Twain, Mark, 1835-1910", ["Twain, Mark"])
     assert not filters.gutenberg_author_match("Kemble, E. W. [Illustrator]; Smith, Jo", ["Kemble, E. W."])
@@ -150,11 +142,41 @@ def test_gutenberg_and_wikisource_filters():
     assert filters.kowikisource_author(page2, ["이상", "채만식", "김유정"]) == "이상"
 
 
-def test_mail_helpers_and_versions():
-    pg = "<!--X-Subject: Re: policy &amp; you -->x<!--X-Body-of-Message--><pre>hello &lt;b&gt;</pre><!--X-Body-of-Message-End-->"
-    assert filters.mhonarc_message(pg) == ("Re: policy & you", "hello <b>")
-    assert filters.is_reply("Re: [PATCH] x") and not filters.is_reply("[PATCH] x")
+def test_quantile_and_versions():
+    assert filters.quantile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.9) == 9
+    assert filters.quantile([5], 0.5) == 5
     assert filters.latest(["man-pages-6.9.1.tar.xz", "man-pages-6.10.tar.xz", "man-pages-6.9.tar.xz"]) == "man-pages-6.10.tar.xz"
+
+
+def test_profiles_for_v11_sources():
+    from data.profiles import profile_for
+    f = load_dl_cfg()["filters"]
+    p, _ = profile_for("code", "common-pile/stackv2_edu_filtered", None, f)
+    class R:   # reader stand-in with a frozen calibration
+        calib = {"threshold": 3.0}
+    rec = {"id": "b1", "text": "def f(): pass", "score": "3.4", "metadata": "{'language': 'Python', 'license': 'MIT', 'repo_name': 'a/b', 'path': 'x.py'}"}
+    assert p.keep(rec, R) and not p.keep(dict(rec, score="2.9"), R)
+    d = p.make(rec, "u", 0, R)
+    assert d["doc_id"] == "stackedu:b1" and d["meta"]["language"] == "Python" and d["meta"]["code_score"] == 3.4
+    p, _ = profile_for("papers_books", "common-pile/doab_filtered", None, f)
+    d = p.make({"id": "x", "text": "book", "source": "doab", "metadata": "{'license': 'CC BY 4.0'}"}, "u", 0, R)
+    assert d["doc_id"] == "doab:x" and d["meta"]["license"] == "CC BY 4.0"
+    p, _ = profile_for("math", "openbmb/UltraData-Math", "UltraData-Math-L2-preview", f)
+    assert p.columns == ["content", "quality_label"] and p.make({"content": "x", "quality_label": "4"}, "u", 3, R)["meta"]["quality_label"] == "4"
+    p, _ = profile_for("korean_web", "eliceai/korean-webtext-edu", None, f)
+    assert p.keep({"text": "가", "score": 3.2}, R) and not p.keep({"text": "가", "score": 2.5}, R)
+
+
+def test_shuffle_hint_is_deterministic():
+    import random
+    files = [f"f{i:03d}" for i in range(95)]
+    a, b = list(files), list(files)
+    random.Random(1234).shuffle(a)
+    random.Random(1234).shuffle(b)
+    assert a == b and a != files
+    dl = load_dl_cfg()
+    assert dl["hf"]["shuffle_files"]["common-pile/stackv2_edu_filtered"] == 1234
+    assert dl["hf"]["files"]["common-pile/stackv2_edu_filtered"] == "*.json.gz"
 
 
 def test_jargon_version_order():
@@ -202,6 +224,20 @@ def test_wiki_dump_parser():
     got = list(parse_wiki_dump(io.BytesIO(xml.encode()), "s", "w", authors=["이상"]))
     assert [d["doc_id"] for _, d in got] == ["w:13"] and got[0][1]["meta"]["author"] == "이상"
     assert [r for r, _ in parse_wiki_dump(io.BytesIO(xml.encode()), "s", "w", start_row=1)] == [3]
+
+
+def test_iter_rows_arrow_stream():
+    try:
+        import pyarrow as pa
+    except ImportError:          # local machines without pyarrow: covered in the Modal image (setup unit_tests)
+        return
+    with tempfile.TemporaryDirectory() as t:
+        p = os.path.join(t, "data-00000-of-00002.arrow")
+        tb = pa.table({"text": ["a", "b", "c"], "score": [3.0, 4.0, 2.0]})
+        with pa.OSFile(p, "wb") as f, pa.ipc.new_stream(f, tb.schema) as w:
+            w.write_table(tb, max_chunksize=2)
+        assert [r for r, _ in iter_rows(p, ["text"], 1)] == [1, 2]
+        assert list(iter_rows(p, ["text"]))[0] == (0, {"text": "a"})
 
 
 def test_iter_rows_jsonl_and_card_patterns():

@@ -1,17 +1,11 @@
 """Readers for non-HF sources: archive.org StackExchange, Wikimedia dumps, RFC, man-pages, Jargon File,
-Gutenberg, OpenStax, irclogs.ubuntu.com, lists.debian.org, lore.kernel.org (LKML, robots-blocked), ConvoKit.
-Hacker News is in data/readers/hn.py (public HF archive).
+Gutenberg, ConvoKit. Hacker News is in data/readers/hn.py (public HF archive).
 
 Each reader freezes its unit list at the first run (<state_dir>/_files_<sub>.json) so resume points stay
 valid, downloads through data.polite.Polite (robots.txt, per-host interval, retries, checksums) and
 records every archive checksum in info().
 """
 import csv
-import datetime as dt
-import email
-import email.policy
-import gzip
-import html
 import io
 import json
 import os
@@ -22,8 +16,7 @@ import tarfile
 import xml.etree.ElementTree as ET
 import zipfile
 
-from data.filters import (gutenberg_author_match, is_reply, kowikisource_author, latest, mail_text,
-                          mhonarc_message, strip_gutenberg)
+from data.filters import gutenberg_author_match, kowikisource_author, latest, strip_gutenberg
 from data.io import atomic_write_json, open_lines, read_json, safe_name
 from data.readers import Reader, doc
 
@@ -340,181 +333,7 @@ class Gutenberg(Frozen):
             yield 0, doc(text, self.source, f"pg:{b['id']}", author=b["author"], title=b["title"], lang=b["lang"])
 
 
-class OpenStax(Frozen):
-    """OpenStax textbooks under CC BY only: PDF -> text with pdftotext. One unit per book."""
-
-    def __init__(self, source, cfg, polite, tmp_dir, state_dir):
-        super().__init__(source, "openstax", polite, tmp_dir, state_dir)
-        self.c = cfg["papers_books"]
-
-    def _compute_units(self):
-        lst = json.loads(self.polite.get(self.c["openstax_api"]))
-        books, seen = [], {}
-        for it in lst.get("items", []):
-            d = json.loads(self.polite.get(it["meta"]["detail_url"]))
-            lic = d.get("license_name") or ""
-            seen[d.get("title", "?")] = f"{lic} [{d.get('book_state')}]"
-            pdf = d.get("high_resolution_pdf_url") or d.get("pdf_url")
-            if lic == self.c["openstax_license"] and pdf and d.get("book_state") in self.c["openstax_states"]:
-                books.append({"title": d["title"], "pdf": pdf, "license": f"{lic} {d.get('license_version', '')}".strip()})
-        return books, {"licenses_seen": seen, "kept": len(books)}
-
-    def docs(self, unit_idx, start_row):
-        if start_row > 0:
-            return
-        b = self.unit(unit_idx)
-        pdf = self._dl(b["pdf"], safe_name(b["title"]) + ".pdf")
-        r = subprocess.run(["pdftotext", "-enc", "UTF-8", pdf, "-"], capture_output=True)
-        os.remove(pdf)
-        if r.returncode != 0:
-            yield 0, None
-            return
-        yield 0, doc(r.stdout.decode("utf-8", "replace"), self.source, f"openstax:{safe_name(b['title'])}",
-                     title=b["title"], license=b["license"])
-
-
 # ------------------------------------------------------------------------------------ geek debate
-class IrcLogs(Frozen):
-    """irclogs.ubuntu.com: every channel log of each day, newest day first from a fixed last day."""
-
-    def __init__(self, source, cfg, polite, tmp_dir, state_dir):
-        super().__init__(source, "irclogs_ubuntu", polite, tmp_dir, state_dir)
-        self.c = cfg["geek_debate"]
-
-    def _compute_units(self):
-        last = dt.date.fromisoformat(self.c["irclogs_last_day"])
-        return [(last - dt.timedelta(days=i)).isoformat() for i in range(self.c["irclogs_max_days"])], {"last_day": str(last)}
-
-    def docs(self, unit_idx, start_row):
-        day = self.unit(unit_idx)
-        base = "https://irclogs.ubuntu.com/" + day.replace("-", "/") + "/"
-        try:
-            names = sorted(set(re.findall(r'href="(%23[^"/]+\.txt)"', self.polite.text(base))))
-        except Exception:  # noqa: BLE001 - day without logs
-            return
-        for row, n in enumerate(names):
-            if row < start_row:
-                continue
-            try:
-                text = self.polite.text(base + n)
-            except Exception:  # noqa: BLE001
-                yield row, None
-                continue
-            ch = html.unescape(n).replace("%23", "#")[:-4]
-            text = "\n".join(l for l in text.splitlines() if not l.startswith("=== "))   # join/part/nick notices
-            if text.strip():
-                yield row, doc(text, self.source, f"irc:{day}:{ch}", channel=ch, day=day)
-
-
-class DebianLists(Frozen):
-    """lists.debian.org MHonArc archives, newest month first, capped by a total request budget."""
-
-    def __init__(self, source, cfg, polite, tmp_dir, state_dir):
-        super().__init__(source, "lists_debian", polite, tmp_dir, state_dir)
-        self.c = cfg["geek_debate"]
-        self.budget_path = os.path.join(state_dir, f"_budget_{self.sub}.json")
-
-    def _compute_units(self):
-        y, m = map(int, self.c["debian_last_month"].split("-"))
-        months = []
-        for _ in range(360):
-            months.append(f"{y:04d}/{m:02d}")
-            y, m = (y, m - 1) if m > 1 else (y - 1, 12)
-        return [{"list": l, "month": mo} for mo in months for l in self.c["debian_lists"]], {}
-
-    def _spend(self):
-        b = read_json(self.budget_path, {"used": 0})
-        if b["used"] >= self.c["debian_max_requests"]:
-            return False
-        b["used"] += 1
-        atomic_write_json(self.budget_path, b)
-        return True
-
-    def docs(self, unit_idx, start_row):
-        u = self.unit(unit_idx)
-        base = f"https://lists.debian.org/{u['list']}/{u['month']}/"
-        if not self._spend():
-            return
-        try:
-            idx = self.polite.text(base + "maillist.html")
-        except Exception:  # noqa: BLE001
-            return
-        msgs = sorted(set(re.findall(r'href="(msg\d+\.html)"', idx)))
-        for row, mname in enumerate(msgs):
-            if row < start_row:
-                continue
-            if not self._spend():
-                return
-            try:
-                subj, body = mhonarc_message(self.polite.text(base + mname))
-            except Exception:  # noqa: BLE001
-                yield row, None
-                continue
-            if body:
-                yield row, doc(mail_text(subj, body), self.source, f"debian:{u['list']}/{u['month']}/{mname}",
-                               mlist=u["list"], reply=is_reply(subj))
-
-    def info(self):
-        i = super().info()
-        i["requests_used"] = read_json(self.budget_path, {"used": 0})["used"]
-        return i
-
-
-class LKML(Frozen):
-    """lore.kernel.org/lkml public-inbox epochs (git), newest first; discussion replies only by default."""
-
-    def __init__(self, source, cfg, polite, tmp_dir, state_dir):
-        super().__init__(source, "lore_lkml", polite, tmp_dir, state_dir)
-        self.c = cfg["geek_debate"]
-
-    def _compute_units(self):
-        if not self.polite.allowed(self.c["lkml_mirror"] + "/manifest.js.gz"):
-            return [], {"skipped": "lore.kernel.org robots.txt: 'User-agent: * / Disallow: /' (also names AI crawlers). "
-                                   "Not collected (spec §5.2: respect robots). NOTES.md D-14"}
-        man = json.loads(gzip.decompress(self.polite.get(self.c["lkml_mirror"] + "/manifest.js.gz")))
-        eps = sorted((int(re.search(r"/(\d+)\.git$", k).group(1)) for k in man if re.search(r"/(\d+)\.git$", k)), reverse=True)
-        return [f"{self.c['lkml_mirror']}/git/{e}.git" for e in eps[: self.c["lkml_epochs_newest_first"]]], {"epochs_total": len(eps)}
-
-    def docs(self, unit_idx, start_row):
-        url = self.unit(unit_idx)
-        repo = os.path.join(self.tmp, f"epoch{unit_idx}.git")
-        if not os.path.exists(os.path.join(repo, "HEAD")):
-            shutil.rmtree(repo, ignore_errors=True)
-            if not self.polite.allowed(url):
-                raise RuntimeError(f"robots.txt disallows {url}")
-            subprocess.run(["git", "clone", "--mirror", "--quiet", url, repo], check=True)
-        shas = subprocess.run(["git", "-C", repo, "rev-list", "--reverse", "--all"], capture_output=True,
-                              text=True, check=True).stdout.split()
-        cat = subprocess.Popen(["git", "-C", repo, "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-        try:
-            for row, sha in enumerate(shas):
-                if row < start_row:
-                    continue
-                cat.stdin.write(f"{sha}:m\n".encode())
-                cat.stdin.flush()
-                header = cat.stdout.readline().split()
-                if len(header) < 3 or header[1] != b"blob":   # deletion commits have no "m"
-                    continue
-                raw = cat.stdout.read(int(header[2]))
-                cat.stdout.read(1)
-                try:
-                    msg = email.message_from_bytes(raw, policy=email.policy.default)
-                    subj = str(msg.get("Subject", ""))
-                    if self.c["lkml_only_replies"] and not is_reply(subj):
-                        continue
-                    part = msg.get_body(preferencelist=("plain",))
-                    body = part.get_content() if part else ""
-                except Exception:  # noqa: BLE001
-                    yield row, None
-                    continue
-                if body.strip():
-                    yield row, doc(mail_text(subj, body), self.source, f"lkml:{msg.get('Message-ID', sha)}", epoch_unit=unit_idx)
-        finally:
-            cat.stdin.close()
-            cat.wait()
-        shutil.rmtree(repo, ignore_errors=True)
-
-
 class Convokit(Frozen):
     """ConvoKit winning-args-corpus: one document per conversation, utterances in time order."""
 

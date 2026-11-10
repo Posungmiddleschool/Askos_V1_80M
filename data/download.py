@@ -18,10 +18,9 @@ from data.io import atomic_write_json, read_json
 from data.polite import Polite
 from data.profiles import profile_for
 from data.quota import Filler
-from data.readers.hf import HFReader, URLListReader
+from data.readers.hf import HFReader
 from data.readers.hn import HNThreads
-from data.readers.web import (RFC, Convokit, DebianLists, Gutenberg, IrcLogs, Jargon, LKML, ManPages, OpenStax,
-                              StackExchange, WikiDump)
+from data.readers.web import RFC, Convokit, Gutenberg, Jargon, ManPages, StackExchange, WikiDump
 
 
 def load_dl_cfg():
@@ -53,11 +52,8 @@ def build_readers(spec, dl, polite, tmp, state_dir):
             configs = s.get("config")
             for c in (configs if isinstance(configs, list) else [configs]):
                 prof, hint_key = profile_for(name, sid, c, dl["filters"])
-                if sid == "togethercomputer/RedPajama-Data-1T":
-                    out.append(URLListReader(name, sid, c, prof, tmp, state_dir, polite))
-                else:
-                    out.append(HFReader(name, sid, c, prof, tmp, state_dir, glob_hint=dl["hf"]["files"].get(hint_key),
-                                        prefetch=dl["prefetch_files"]))
+                out.append(HFReader(name, sid, c, prof, tmp, state_dir, glob_hint=dl["hf"]["files"].get(hint_key),
+                                    prefetch=dl["prefetch_files"], shuffle_seed=dl["hf"]["shuffle_files"].get(hint_key)))
         elif k == "archive" and "stackexchange" in sid:
             out.append(StackExchange(name, s, dl, polite, tmp, state_dir))
         elif k == "dump" and sid.startswith("kowikisource"):
@@ -65,18 +61,12 @@ def build_readers(spec, dl, polite, tmp, state_dir):
                                 authors=dl["rebel_classics"]["kowikisource_authors"]))
         elif k == "dump" and "wikibooks" in sid:
             out += [WikiDump(name, w, polite, tmp, state_dir) for w in dl["papers_books"]["wikibooks"]]
-        elif k == "url" and "OpenStax" in sid:
-            out.append(OpenStax(name, dl, polite, tmp, state_dir))
         elif k == "url" and "rfc-editor" in sid:
             out.append(RFC(name, dl, polite, tmp, state_dir))
         elif k == "url" and "man-pages" in sid:
             out.append(ManPages(name, dl, polite, tmp, state_dir))
         elif k == "url" and "Jargon" in sid:
             out.append(Jargon(name, dl, polite, tmp, state_dir))
-        elif k == "url" and "lore.kernel.org" in sid:
-            out += [LKML(name, dl, polite, tmp, state_dir), DebianLists(name, dl, polite, tmp, state_dir)]
-        elif k == "url" and "irclogs" in sid:
-            out.append(IrcLogs(name, dl, polite, tmp, state_dir))
         elif k == "convokit":
             out.append(Convokit(name, sid, dl, polite, tmp, state_dir))
         elif k == "gutenberg":

@@ -18,10 +18,20 @@ hf:
   files:                        # file globs where the dataset card has no usable `configs:` entry
     allenai/peS2o: "data/v2/train-*.json.gz"            # README: "peS2o V2 (Latest)"
     EleutherAI/proof-pile-2/algebraic-stack: "algebraic-stack/train/*.jsonl.zst"
-    codeparrot/github-code-clean: "data/train-*.parquet"
     mlfoundations/dclm-baseline-1.0: "global-shard_*/local-shard_*/*.jsonl.zst"
-    open-web-math/open-web-math: "data/train-*.parquet"
     open-index/hacker-news: "data/*/*.parquet"          # monthly archive only (not the live "today/" blocks)
+    common-pile/stackv2_edu_filtered: "*.json.gz"
+    common-pile/arxiv_papers_filtered: "*.json.gz"
+    common-pile/doab_filtered: "*.json.gz"
+    common-pile/libretexts_filtered: "*.json.gz"
+    common-pile/pressbooks_filtered: "*.json.gz"
+    common-pile/oercommons_filtered: "*.json.gz"
+    common-pile/github_archive_filtered: "*.json.gz"
+    common-pile/python_enhancement_proposals_filtered: "*.json.gz"
+  shuffle_files:                # seeded permutation of the frozen file list (repos whose files are grouped)
+    common-pile/stackv2_edu_filtered: 1234   # files are grouped by language; read a mix
+    common-pile/github_archive_filtered: 1234
+    HuggingFaceFW/finepdfs-edu: 1234
     heegyu/namuwiki-extracted: "*.parquet"
 
 filters:
@@ -30,9 +40,9 @@ filters:
   dclm_top_frac: 0.10           # "top 10% by the dataset's fastText quality score"
   dclm_score_field: fasttext_openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train_prob
   dclm_calibration_files: 4     # threshold = (1 - top_frac) quantile over the first N files, frozen in state
-  code_licenses: [mit, apache-2.0, bsd-2-clause, bsd-3-clause]
-  code_keep_frac: 0.5           # "top half"; v1 uses the spec's fallback heuristic (NOTES.md D-10)
-  code_calibration_files: 2
+  code_keep_frac: 0.5           # "top half by a public Stack-Edu classifier" (spec §5.1), on the released score
+  code_calibration_files: 6     # threshold = median score over the first 6 files of the shuffled list (several languages)
+  korean_webtext_edu_min_score: 3.0   # the dataset's own release threshold (kept explicit)
   stackexchange_min_answer_score: 5
   hn_min_story_score: 100
 
@@ -40,22 +50,11 @@ stackexchange:
   archive_item: stackexchange   # archive.org/details/stackexchange; md5 from archive.org/metadata
 
 papers_books:
-  openstax_api: "https://openstax.org/apps/cms/api/v2/pages/?type=books.Book&limit=250"
-  openstax_license: "Creative Commons Attribution License"   # CC BY only (not NC, not SA)
-  openstax_states: [live, new_edition_available, retired]   # retired CC BY editions are still CC BY (newer ones are often NC-SA)
   wikibooks: [enwikibooks, kowikibooks]
 
 geek_debate:
-  lkml_mirror: "https://lore.kernel.org/lkml"
-  lkml_epochs_newest_first: 6   # clone at most this many public-inbox epochs (newest first)
-  lkml_only_replies: true       # keep discussion ("Re:"), drop bare patch postings
-  debian_lists: [debian-devel, debian-project, debian-policy]
-  debian_last_month: "2025-10"  # fixed for reproducibility; walk backwards from here
-  debian_max_requests: 6000     # ~2 h at 1 req/s; the rest of the share goes to the other sub-sources
-  irclogs_last_day: "2025-10-31"
-  irclogs_max_days: 4000
-  convokit_url: "https://zissou.infosci.cornell.edu/convokit/datasets/winning-args-corpus/winning-args-corpus.zip"
   hn_comment_window_months: 3  # comments of a story are collected from its month and the next 2 (HN threads go quiet in weeks)
+  convokit_url: "https://zissou.infosci.cornell.edu/convokit/datasets/winning-args-corpus/winning-args-corpus.zip"
 
 hacker_docs:
   rfc_rsync: "rsync.rfc-editor.org::rfcs-text-only"

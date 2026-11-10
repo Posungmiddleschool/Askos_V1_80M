@@ -1,4 +1,5 @@
 # Source manifest (spec v7 §5.1). read_gb = weight x data.read_gb, l3_gb = big sources renormalised to data.l3_gb.
+# Weights and shares are the spec's. Sub-sources marked `# v1.1` replace lower-quality or key-requiring ones (NOTES.md D-22).
 - name: fineweb_edu
   weight: 0.20
   read_gb: 6.40
@@ -18,23 +19,29 @@
   read_gb: 3.20
   l3_gb: 4.17
   sources:
-    - {kind: hf, id: codeparrot/github-code-clean, text: code, filter: "license in [mit, apache-2.0, bsd-2-clause, bsd-3-clause]; top half by a public Stack-Edu classifier, fallback comment-ratio and line-length heuristics", verify: true}
-  license: per-file permissive
+    - {kind: hf, id: common-pile/stackv2_edu_filtered, text: text, filter: "top half by the Stack-Edu classifier score (openly licensed files only)", verify: true}   # v1.1
+  license: openly licensed per file (Common Pile)
 - name: korean_web
   weight: 0.10
   read_gb: 3.20
   l3_gb: 4.17
   sources:
-    - {kind: hf, id: HuggingFaceFW/fineweb-2, config: kor_Hang, text: text, filter: "language_score >= 0.9"}
-  license: odc-by
+    - {kind: hf, id: HuggingFaceFW/finepdfs-edu, config: kor_Hang, text: text}                                  # v1.1: edu-classified PDFs
+    - {kind: hf, id: eliceai/korean-webtext-edu, text: text, filter: "score >= 3 (as released)"}                 # v1.1: edu-scored Korean web
+    - {kind: hf, id: HuggingFaceFW/fineweb-2, config: kor_Hang, text: text, filter: "language_score >= 0.9"}     # fills the rest
+  license: odc-by; mit (korean-webtext-edu, upstream license unstated)
 - name: papers_books
   weight: 0.09
   read_gb: 2.88
   l3_gb: 3.75
   sources:
     - {kind: hf, id: allenai/peS2o, text: text}
-    - {kind: hf, id: togethercomputer/RedPajama-Data-1T, config: arxiv, text: text, verify: true}
-    - {kind: url, id: "OpenStax textbooks (CC BY)", verify: true}
+    - {kind: hf, id: common-pile/arxiv_papers_filtered, text: text}          # v1.1: openly licensed arXiv full text (LaTeXML), was RedPajama arxiv
+    - {kind: hf, id: HuggingFaceFW/finepdfs-edu, config: eng_Latn, text: text}   # v1.1: edu-classified PDFs (papers, reports, books)
+    - {kind: hf, id: common-pile/doab_filtered, text: text}                  # v1.1: Directory of Open Access Books
+    - {kind: hf, id: common-pile/libretexts_filtered, text: text}            # v1.1: open textbooks (was OpenStax PDF -> pdftotext)
+    - {kind: hf, id: common-pile/pressbooks_filtered, text: text}            # v1.1
+    - {kind: hf, id: common-pile/oercommons_filtered, text: text}            # v1.1
     - {kind: dump, id: "enwikibooks and kowikibooks dumps"}
   license: open per item
 - name: math
@@ -43,7 +50,7 @@
   l3_gb: 3.33
   sources:
     - {kind: hf, id: HuggingFaceTB/finemath, config: finemath-4plus, text: text}
-    - {kind: hf, id: open-web-math/open-web-math, text: text}
+    - {kind: hf, id: openbmb/UltraData-Math, config: UltraData-Math-L2-preview, text: content}   # v1.1: classifier-selected original web math (not L3 synthetic), was open-web-math
     - {kind: hf, id: EleutherAI/proof-pile-2, config: algebraic-stack, text: text}
   license: odc-by and per source
 - name: stackexchange
@@ -57,8 +64,8 @@
   read_gb: 1.92
   sources:
     - {kind: hf, id: open-index/hacker-news, text: text, filter: "threads with story score >= 100", verify: true}   # was BigQuery (needs a GCP key); NOTES.md D-15
-    - {kind: url, id: "lore.kernel.org LKML and lists.debian.org archives", verify: true}
-    - {kind: url, id: "irclogs.ubuntu.com"}
+    - {kind: hf, id: common-pile/github_archive_filtered, text: text}                   # v1.1: issue/PR discussions of openly licensed repos (was LKML, robots-blocked)
+    - {kind: hf, id: common-pile/python_enhancement_proposals_filtered, text: text}     # v1.1: PEPs (was irclogs, lists.debian.org)
     - {kind: convokit, id: winning-args-corpus}
   license: author copyright
   research_only: true
@@ -74,7 +81,7 @@
   read_gb: 1.60
   l3_gb: 2.08
   sources:
-    - {kind: hf, id: wikimedia/wikipedia, config: [20231101.en, 20231101.ko], text: text}
+    - {kind: hf, id: HuggingFaceFW/finewiki, config: [ko, en], text: text}     # v1.1: 2024-10 dumps, cleaner extraction with math, was wikimedia/wikipedia 20231101
   license: cc-by-sa
 - name: hacker_docs
   weight: 0.04
