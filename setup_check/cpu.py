@@ -31,13 +31,17 @@ def packages():
             v[p] = md.version(p)
         except md.PackageNotFoundError:
             v[p] = None
-    try:  # hf-xet must also be usable by huggingface_hub, not just installed
-        from huggingface_hub.utils import is_xet_available
-        v["xet_usable_by_hub"] = bool(is_xet_available()) or None
-    except ImportError:
-        v["xet_usable_by_hub"] = None
+    v["xet_usable_by_hub"] = xet_usable_by_hub()
     missing = [k for k, x in v.items() if x is None]
     return {"ok": not missing, "python": platform.python_version(), "versions": v, "missing": missing}
+
+
+def xet_usable_by_hub():
+    """True if hf_xet imports and huggingface_hub would use it; None (= missing) otherwise.
+    is_xet_available lives in huggingface_hub.utils._runtime (not re-exported by utils in 0.33)."""
+    import hf_xet  # noqa: F401
+    from huggingface_hub.utils._runtime import is_xet_available
+    return True if is_xet_available() else None
 
 
 def toolchain():
