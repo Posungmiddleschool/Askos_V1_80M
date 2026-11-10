@@ -15,11 +15,14 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_NAME = "askos-v1-80m"
+VOLUME_NAME = "askos-data"
 HF_SECRET = "huggingface"
 STAGES = {
     # stage: (function name, runs dir, kwargs builder)
     "setup": ("setup", "runs/00_setup", lambda commit: {"git_commit": commit, "gpus": "L4,L40S,H100"}),
+    "download": ("download", "runs/01_download", lambda commit: {"git_commit": commit, "sources": "all"}),
 }
+GCP_SECRET = "gcp"   # optional (Hacker News via BigQuery)
 TOK = [re.compile(r"hf_[A-Za-z0-9]{20,}"), re.compile(r"\b(?:ak|as)-[A-Za-z0-9]{16,}")]
 
 
@@ -78,7 +81,13 @@ def launch(stage, again):
         print(f"Modal 시크릿 '{HF_SECRET}'이 없습니다. 사람이 터미널에서 직접:\n"
               f"  modal secret create {HF_SECRET} HF_TOKEN=<HF 쓰기 토큰>\n(에이전트는 토큰을 입력하지 않습니다.)")
         return 2
-    subprocess.run(["modal", "deploy", "modal_app.py"], cwd=HERE, check=True)
+    env = dict(os.environ)
+    if re.search(rf"(^|\W){re.escape(GCP_SECRET)}(\W|$)", secrets):
+        env["ASKOS_GCP"] = "1"
+        print("선택 시크릿 'gcp'가 있어 Hacker News(BigQuery)를 포함합니다.")
+    elif stage == "download":
+        print("선택 시크릿 'gcp'가 없어 Hacker News(BigQuery)는 건너뜁니다(D1.md에 기록됨).")
+    subprocess.run(["modal", "deploy", "modal_app.py"], cwd=HERE, check=True, env=env)
     import modal
     commit = git_commit()
     call = modal.Function.from_name(APP_NAME, fn).spawn(**kwargs(commit))
@@ -92,22 +101,48 @@ def launch(stage, again):
 def write_results(stage, res):
     out = os.path.join(HERE, STAGES[stage][1])
     os.makedirs(out, exist_ok=True)
-    parts = {"cpu": res.get("cpu", {})} | {f"gpu_{g}": r for g, r in (res.get("gpus") or {}).items()}
-    if not parts["cpu"]:
-        parts = {"main": res}
+    parts = res.get("runs")
+    if parts is None:
+        parts = {"cpu": res.get("cpu", {})} | {f"gpu_{g}": r for g, r in (res.get("gpus") or {}).items()}
     for name, r in parts.items():
         with open(os.path.join(out, f"{name}.log.txt"), "w", encoding="utf-8") as f:
             f.write(redact(r.get("log") or r.get("error") or ""))
         if r.get("report"):
             with open(os.path.join(out, f"{name}.report.json"), "w", encoding="utf-8") as f:
                 json.dump(r["report"], f, ensure_ascii=False, indent=2)
-    slim = {k: v for k, v in res.items() if k not in ("cpu", "gpus", "log", "summary_md")}
+    slim = {k: v for k, v in res.items() if k not in ("cpu", "gpus", "runs", "log", "summary_md")}
     with open(os.path.join(out, "summary.json"), "w", encoding="utf-8") as f:
         json.dump(slim, f, ensure_ascii=False, indent=2, default=str)
     if res.get("summary_md"):
-        with open(os.path.join(out, "SETUP.md" if stage == "setup" else "SUMMARY.md"), "w", encoding="utf-8") as f:
+        with open(os.path.join(out, res.get("summary_file", "SETUP.md")), "w", encoding="utf-8") as f:
             f.write(redact(res["summary_md"]))
     return out
+
+
+def progress_download():
+    """Per-source progress from /raw/<name>/_state.json on the Volume (committed every ~5 minutes)."""
+    import modal
+    import yaml
+    try:
+        vol = modal.Volume.from_name(VOLUME_NAME)
+        sources = yaml.safe_load(open(os.path.join(HERE, "data", "sources.yaml"), encoding="utf-8"))
+        over = yaml.safe_load(open(os.path.join(HERE, "configs", "download.yaml"), encoding="utf-8"))["overshoot"]
+    except Exception as e:  # noqa: BLE001
+        print(f"(진행률을 읽지 못함: {type(e).__name__})")
+        return
+    print(f"{'소스':<16}{'받은 GB':>9}{'목표 GB':>9}{'비율':>7}  하위 소스(소진/실패)")
+    for s in sources:
+        tgt = (s["read_gb"] + s.get("l3_gb", 0.0)) * over
+        try:
+            st = json.loads(b"".join(vol.read_file(f"raw/{s['name']}/_state.json")))
+        except Exception:  # noqa: BLE001 - not started yet / not committed yet
+            print(f"{s['name']:<16}{'-':>9}{tgt:>9.2f}{'-':>7}  (아직 기록 없음)")
+            continue
+        subs = st.get("subs", {})
+        got = sum(x["bytes"] for x in subs.values()) / 1e9
+        ex = sum(1 for x in subs.values() if x["exhausted"])
+        bad = sum(1 for x in subs.values() if x["failed"])
+        print(f"{s['name']:<16}{got:>9.2f}{tgt:>9.2f}{got / tgt:>7.0%}  {len(subs)}개 ({ex}/{bad})")
 
 
 def status(stage):
@@ -119,6 +154,8 @@ def status(stage):
     state, res = poll(cid)
     print(f"상태: {state} ({cid})")
     if state == "RUNNING":
+        if stage == "download":
+            progress_download()
         print(f"15~20분 뒤 다시 `bash status.sh {stage}`. 실시간 로그: modal app logs {APP_NAME}")
         return 3
     if state == "ENDED WITH ERROR":

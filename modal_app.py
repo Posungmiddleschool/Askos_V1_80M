@@ -6,7 +6,8 @@ Every stage runs its real code as a subprocess through `_run`, so a crash in the
 the wrapper alive to upload the last log.
 
 Stages in this file so far:
-  setup  (notebook 00) -> setup() on CPU, which spawns gpu_probe_l4 / gpu_probe_l40s / gpu_probe_h100
+  setup     (notebook 00) -> setup() on CPU, which spawns gpu_probe_l4 / gpu_probe_l40s / gpu_probe_h100
+  download  (notebook 01) -> download() on CPU, which spawns download_source(name) per source (12 in parallel)
 """
 import json
 import os
@@ -35,12 +36,13 @@ FLASH_ATTN_WHEEL = ("https://github.com/Dao-AILab/flash-attention/releases/downl
 
 image = (
     modal.Image.from_registry("nvidia/cuda:12.4.1-devel-ubuntu22.04", add_python="3.11")
-    .apt_install("build-essential", "cmake", "git", "pkg-config", "zstd", "libzstd-dev", "curl")
+    .apt_install("build-essential", "cmake", "git", "pkg-config", "zstd", "libzstd-dev", "curl",
+                 "p7zip-full", "rsync", "poppler-utils", "groff-base")
     .pip_install("torch==2.6.0", index_url=TORCH_INDEX)           # bundles triton 3.2.0
     .pip_install("einops==0.8.0", FLASH_ATTN_WHEEL)
     .pip_install("numpy==1.26.4", "numba==0.60.0", "datasets==3.2.0", "huggingface_hub==0.33.4", "hf-xet==1.1.5",
                  "zstandard==0.23.0", "datasketch==1.6.5", "pyyaml==6.0.2", "pytest==8.3.4",
-                 "psutil==6.1.1", "pybind11==2.13.6")
+                 "psutil==6.1.1", "pybind11==2.13.6", "google-cloud-bigquery==3.27.0")
     .env({"HF_HOME": "/root/hf_cache", "HF_XET_HIGH_PERFORMANCE": "1", "PYTHONUNBUFFERED": "1",
           "TOKENIZERS_PARALLELISM": "false"})
     .add_local_dir(HERE, REMOTE_ROOT, ignore=["**/__pycache__/**", "**/*.pyc", ".git/**", "runs/**",
@@ -49,6 +51,10 @@ image = (
 app = modal.App(APP_NAME, image=image)
 data_vol = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 hf_secret = modal.Secret.from_name(HF_SECRET)
+# Optional secret for the Hacker News sub-source (BigQuery). ops.py sets ASKOS_GCP=1 at deploy time only
+# when a Modal secret named "gcp" exists, so a missing secret never breaks the deploy.
+GCP_SECRET = "gcp"
+OPTIONAL_SECRETS = [modal.Secret.from_name(GCP_SECRET)] if os.environ.get("ASKOS_GCP") == "1" else []
 
 # Same patterns as common/redact.py (tests/test_infra.py checks they are identical).
 TOK_PATTERNS = [
@@ -89,9 +95,11 @@ def _upload(local_dir, hub_dir, msg):
     return None
 
 
-def _run(cmd, env, tag, hub_dir=None):
+def _run(cmd, env, tag, hub_dir=None, vol=None, vol_commit_every_min=5):
     """Run `cmd` in REMOTE_ROOT. Each line: redact -> print -> log file. Log goes to the Hub every
-    LOG_UPLOAD_EVERY_MIN minutes and at the end (only when hub_dir and a token are present)."""
+    LOG_UPLOAD_EVERY_MIN minutes and at the end (only when hub_dir and a token are present).
+    With `vol`, the Volume is committed every `vol_commit_every_min` minutes and at the end, so a
+    killed container loses at most a few minutes of downloaded parts."""
     run_dir = f"{RUNS}/{tag}"
     os.makedirs(run_dir, exist_ok=True)
     log_path = f"{run_dir}/log.txt"
@@ -102,8 +110,17 @@ def _run(cmd, env, tag, hub_dir=None):
         while not stop.wait(LOG_UPLOAD_EVERY_MIN * 60):
             _upload(run_dir, hub_dir, f"{tag}: periodic log")
 
+    def commit_loop():
+        while not stop.wait(vol_commit_every_min * 60):
+            try:
+                vol.commit()
+            except Exception as e:  # noqa: BLE001
+                print(_redact(f"[wrapper] volume commit failed: {e}"), flush=True)
+
     if hub_dir:
         threading.Thread(target=periodic, daemon=True).start()
+    if vol is not None:
+        threading.Thread(target=commit_loop, daemon=True).start()
     t0 = time.time()
     with open(log_path, "w", encoding="utf-8") as f:
         p = subprocess.Popen(cmd, cwd=REMOTE_ROOT, env=full_env, stdout=subprocess.PIPE,
@@ -115,6 +132,11 @@ def _run(cmd, env, tag, hub_dir=None):
             f.flush()
         rc = p.wait()
     stop.set()
+    if vol is not None:
+        try:
+            vol.commit()
+        except Exception as e:  # noqa: BLE001
+            print(_redact(f"[wrapper] final volume commit failed: {e}"), flush=True)
     report = None
     rp = f"{run_dir}/report.json"
     if os.path.exists(rp):
@@ -219,3 +241,58 @@ def setup(git_commit: str = "unknown", gpus: str = "L4,L40S,H100"):
     summary["parts"] = slim["parts"]
     summary["summary_md"] = _summary_md(summary)
     return summary
+
+
+# --------------------------------------------------------------------------------------------
+# Stage "download" (notebook 01, spec §5.2)
+# --------------------------------------------------------------------------------------------
+RAW = f"{VOL_PATH}/raw"
+SOURCE_NAMES = ["fineweb_edu", "dclm_top", "code", "korean_web", "papers_books", "math", "stackexchange",
+                "geek_debate", "namuwiki", "wikipedia", "hacker_docs", "rebel_classics"]  # = data/sources.yaml
+
+
+@app.function(cpu=4.0, memory=32768, timeout=24 * 3600, secrets=[hf_secret] + OPTIONAL_SECRETS,
+              volumes={VOL_PATH: data_vol})
+def download_source(name: str, git_commit: str = "unknown"):
+    """One source -> /vol/raw/<name>/. Resumable from /vol/raw/<name>/_state.json."""
+    data_vol.reload()
+    return _run([sys.executable, "-m", "data.download", "source", name, "--out", RAW, "--tmp", "/tmp/askos_dl",
+                 "--report", f"{RUNS}/download_{name}/report.json"],
+                {"GIT_COMMIT": git_commit}, f"download_{name}", hub_dir=f"01_download/{name}", vol=data_vol)
+
+
+@app.function(cpu=2.0, memory=8192, timeout=24 * 3600, secrets=[hf_secret], volumes={VOL_PATH: data_vol})
+def download(git_commit: str = "unknown", sources: str = "all"):
+    """Notebook 01. Spawns one container per source, waits, then writes reports/D1.md (Volume + Hub)."""
+    names = SOURCE_NAMES if sources == "all" else [s for s in sources.split(",") if s]
+    calls = {n: download_source.spawn(n, git_commit) for n in names}
+    print(f"[download] {len(calls)}개 소스 병렬 시작: {names}", flush=True)
+    runs = {}
+    for n, c in calls.items():
+        try:
+            runs[n] = c.get(timeout=24 * 3600)
+        except Exception as e:  # noqa: BLE001 - reported, never retried automatically
+            runs[n] = {"tag": f"download_{n}", "returncode": -1, "report": None, "log": "",
+                       "error": _redact(f"{type(e).__name__}: {e}")[:1000]}
+        print(f"[download] 끝: {n} rc={runs[n].get('returncode')} {runs[n].get('error', '')}", flush=True)
+    data_vol.reload()
+    rep = _run([sys.executable, "-m", "data.download", "report", "--raw", RAW, "--out", f"{RUNS}/download_report"],
+               {"GIT_COMMIT": git_commit}, "download_report", hub_dir="01_download/report")
+    d1 = f"{RUNS}/download_report/D1.md"
+    os.makedirs(f"{VOL_PATH}/reports", exist_ok=True)
+    md = open(d1, encoding="utf-8").read() if os.path.exists(d1) else "# D1\n\n보고서 생성 실패. download_report 로그를 보세요.\n"
+    with open(f"{VOL_PATH}/reports/D1.md", "w", encoding="utf-8") as f:
+        f.write(md)
+    data_vol.commit()
+    os.makedirs(f"{RUNS}/reports", exist_ok=True)
+    with open(f"{RUNS}/reports/D1.md", "w", encoding="utf-8") as f:
+        f.write(md)
+    hub = _upload(f"{RUNS}/reports", "reports", "D1 report")
+    r = rep.get("report") or {}
+    verdict = "통과" if (r.get("verdict") or {}).get("pass") else f"미완: {(r.get('verdict') or {}).get('failed')}"
+    print(f"판정: 01 다운로드 {verdict}", flush=True)
+    print(f"보고서 → {hub or d1}/D1.md", flush=True)
+    runs["report"] = rep
+    return {"stage": "download", "git_commit": git_commit, "verdict": verdict, "hub": hub,
+            "parts": {n: (x.get("report") or {"error": x.get("error")}) for n, x in runs.items()},
+            "runs": runs, "summary_md": md, "summary_file": "D1.md"}

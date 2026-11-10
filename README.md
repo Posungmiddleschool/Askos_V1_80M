@@ -10,8 +10,8 @@
 ## 노트북 계획
 | # | 노트북 | 하는 일 | GPU | 상태 |
 |---|---|---|---|---|
-| 00 | `00_setup_and_tests.ipynb` | 환경 점검: 패키지, Volume, HF, GPU 3종 | CPU + L4·L40S·H100 각 몇 분 | **코드 작성됨, Modal 실행 없음** |
-| 01 | `01_data_download` | 소스 13개 다운로드 | CPU | 예정 |
+| 00 | `00_setup_and_tests.ipynb` | 환경 점검: 패키지, Volume, HF, GPU 3종 | CPU + L4·L40S·H100 각 몇 분 | **통과** (2026-11-10, `RESULTS_LOG.md`) |
+| 01 | `01_data_download.ipynb` | 소스 12개 다운로드(약 99GB 텍스트) → `reports/D1.md` | CPU 12컨테이너 | **코드 작성됨, Modal 실행 없음** |
 | 02 | `02_data_clean_dedup_split` | 정제, 중복 제거, 벤치마크 제거, 분할 | L4 + CPU | 예정 |
 | 03 | `03_library_index_anchors` | L3 색인, 앵커, 문서 해시, 로더 | CPU(대용량 RAM) | 예정 |
 | 04 | `04_cursor_kernel` | 커서 numba·triton, T14~T20 | L4 | 예정 |
@@ -30,12 +30,16 @@
 에이전트에게 맡길 때는 `00_READ_ME_FIRST_AI_AGENT.md`와 `AGENT_INSTRUCTIONS.md`를 주면 됩니다.
 
 ## 상태 (정직하게)
-- **시험한 것:**
-  - `tests/test_infra.py` 9개 통과(설정 일관성, 소스 비율, 스모크 병합, 토큰 가리기, `modal_app.py`와 설정의 이름 일치, 저장소에 토큰 없음)
-  - 모든 파이썬 파일 `py_compile` 통과, 셸 스크립트 `bash -n` 통과
-  - 점검 틀(`setup_check.Checks`)을 로컬에서 건식 실행
-- **아직 안 돌려 본 것:**
-  - Modal 실행 없음: 이미지 빌드, `deploy`, `spawn`, Volume, HF 업로드 모두
-  - GPU 실행 없음: flash-attn, triton, HBM 점검
-  - 숫자(TFLOPS, MB/s)는 아직 하나도 없습니다. 실행하면 실측값만 기록됩니다.
-- 구현서에서 벗어난 결정은 `NOTES.md`에 있습니다.
+- **00:** Modal에서 통과했습니다. 실측값은 `RESULTS_LOG.md`에 있습니다.
+- **01 (코드만, Modal 실행 없음):**
+  - 오프라인 시험 `tests/test_download.py` 15개 통과: 목표 배분, 컨테이너가 죽은 뒤 중복 없이 재개, 실패한 하위 소스 재시도, robots.txt, md5, 이어 받기, 파서·필터
+  - 이 세션에서 실제 데이터로 작게 돌려 확인한 것:
+    - DCLM 30MB: 상위 10% 기준값 0.525
+    - github-code-clean: 라이선스 필터, 품질 기준값 0.565
+    - FineMath, OpenWebMath, Proof-Pile-2 각 6MB
+    - HF 소스 11개 파일 목록과 리비전
+    - Gutenberg 카탈로그(책 823권 + Abbott)
+    - lists.debian.org, irclogs, ConvoKit, Jargon File 4.4.7, man-pages 6.20, RFC 목록 8,873편
+  - **안 돌려 본 것:** StackExchange(7z), BigQuery HN, OpenStax PDF 변환, 전체 규모 실행. 속도와 시간은 실측 전입니다.
+  - LKML은 robots.txt가 막아서 받지 않습니다(NOTES.md D-14).
+- 구현서에서 벗어난 결정은 `NOTES.md`에 있습니다(D-01~D-20).

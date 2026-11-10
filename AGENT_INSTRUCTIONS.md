@@ -7,7 +7,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 - HF 쓰기 토큰과 비공개 상태 저장소, HF 공개 데이터 읽기 속도
 - L4 · L40S · H100 각각에서 bf16 행렬곱 속도, flash-attn varlen 정확도, triton, `torch.compile`, numba, HBM 할당
 
-다른 노트북은 만들어지는 대로 이 문서에 단계가 추가됩니다.
+노트북 01(데이터 다운로드)은 아래 **"노트북 01"** 절에 있습니다. 다른 노트북은 만들어지는 대로 이 문서에 단계가 추가됩니다. 항상 `git pull` 후 지금 맡은 노트북의 절만 따릅니다.
 
 ## 파일
 | 파일 | 역할 |
@@ -67,3 +67,67 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 
 ## 요약 (보고서 끝에 붙일 문장)
 노트북 00은 Askos-V1-80M을 Modal에서 돌리기 위한 환경을 점검했습니다. CPU · Volume · HF 비공개 저장소 · L4 · L40S · H100에서 각 항목의 통과 여부와 실측 속도를 `runs/00_setup/SETUP.md`에 남겼습니다. 판정이 통과면 노트북 01(데이터 다운로드)로 넘어갑니다. **작업이 끝나면 에이전트에게 준 Modal · HF 토큰을 폐기하세요.**
+
+
+---
+
+# 노트북 01: 데이터 다운로드 (`01_data_download.ipynb`)
+
+## 목표
+`data/sources.yaml`의 소스 12개를 Modal Volume `askos-data`의 `/raw/<소스>/`로 받습니다. 소스마다 목표량은 (read_gb + l3_gb) × 1.6이고 합계 약 99GB입니다. 끝나면 `reports/D1.md`가 Volume과 HF 상태 저장소에 남습니다.
+
+## 추가 파일
+| 파일 | 역할 |
+|---|---|
+| `01_data_download.ipynb` | 노트북 진입점 |
+| `data/download.py` | `source <이름>`, `report`, `plan` 명령 |
+| `data/quota.py` | 하위 소스별 목표량 배분과 재개(`_state.json`) |
+| `data/readers/hf.py`, `data/readers/web.py`, `data/profiles.py`, `data/filters.py` | 소스별 리더와 필터 |
+| `data/polite.py` | robots.txt 준수, 호스트당 요청 간격, 재시도, 체크섬 |
+| `configs/download.yaml` | 다운로더 설정(필터 기준, 날짜, 요청 한도) |
+| `tests/test_download.py` | 네트워크 없이 도는 시험 |
+
+## 금지 사항 (00과 같음, 추가 1개)
+- 위 00의 금지 사항을 모두 지킵니다.
+- 시크릿 `gcp`는 선택입니다. 없으면 HN만 빠지고 나머지는 그대로 진행합니다. 에이전트가 키를 만들거나 입력하지 않습니다.
+
+## 단계
+1. `git pull`
+2. 로컬 시험: `python3 tests/test_infra.py && python3 tests/test_download.py`
+3. `bash launch.sh download` → `spawned fc-...`가 나오면 성공입니다.
+4. 5분 뒤 `bash status.sh download` → `상태: RUNNING`과 소스별 진행률 표가 나옵니다.
+5. **20~30분마다** `bash status.sh download`를 다시 실행합니다. 몇 시간이 걸릴 수 있습니다. 진행률 표의 숫자가 늘고 있으면 정상입니다.
+6. `FINISHED`가 나오면 `runs/01_download/D1.md`를 확인합니다.
+
+### 시간대별로 기대하는 로그 (`modal app logs askos-v1-80m`)
+| 시각 | 줄 |
+|---|---|
+| 0~15분 | 이미지 재빌드(apt: p7zip, rsync, poppler, groff / pip: google-cloud-bigquery). 이미지가 바뀌었으니 첫 실행 한 번만 |
+| 시작 | `[download] 12개 소스 병렬 시작: [...]` |
+| 소스마다 | `실행 정보: ...`, `다운로드 시작: <소스> 목표 X GB`, `할당 1차: ...` |
+| 진행 중 | `저장: <하위 소스> 유닛 i/N · 누적 X GB · 문서 N` (256MB마다) |
+| 하위 소스 끝 | `소진: <하위 소스> ...` 또는 `실패: <하위 소스> ...` |
+| 소스 끝 | `속도: <소스> 텍스트 X MB/s (실측 ...)`, `판정: <소스> 목표 도달/소스 소진/미달` |
+| 전체 끝 | `판정: 01 다운로드 통과/미완`, `보고서 → .../D1.md` |
+
+## 끝나면
+- `runs/01_download/`의 파일을 모두 전달합니다: `D1.md`, `summary.json`, `*.log.txt`, `*.report.json`
+- 그대로 인용할 줄: `판정:` 줄 전부, `속도:` 줄 전부, `실패:` 줄 전부
+- 총 시간과 Modal 비용(대시보드)을 적습니다. BigQuery를 썼다면 GCP 비용도 적습니다.
+
+## 문제 대처표
+| 증상 | 조치 |
+|---|---|
+| `[download] 끝: <소스> rc=-1 ...` (컨테이너가 죽음) | 보고합니다. 사람이 승인하면 `bash launch.sh download --again`. 받은 부분은 이어집니다 |
+| `실패: <하위 소스> ... HTTPError 429/503` | 사이트 일시 제한입니다. 보고합니다. 다음 `--again`에서 자동으로 최대 3번까지 다시 시도합니다 |
+| `RobotsDisallowed` | 그 사이트의 robots.txt가 막은 것입니다. **우회하지 않고** 보고합니다 |
+| `md5 mismatch` (StackExchange) | archive.org 파일 손상이나 변경입니다. 보고합니다 |
+| `verify failed: ...` | 데이터셋 필드나 구조가 바뀐 것입니다. 파일을 고치지 말고 오류 줄 그대로 보고합니다 |
+| 소스 판정 `소스 소진(작은 소스)` | 정상일 수 있습니다(예: hacker_docs, rebel_classics). 부족분은 노트북 02의 분할 규칙이 FineWeb-Edu로 채웁니다 |
+| geek_debate에서 `lore_lkml` 0바이트, `skipped` | 정상입니다. lore.kernel.org가 robots.txt로 막았습니다(NOTES.md D-14) |
+| `bigquery_hacker_news` `skipped` | 시크릿 `gcp`가 없으면 정상입니다 |
+| Volume 용량 부족 | 보고합니다(raw는 압축해서 약 30~40GB 예상) |
+| `ENDED WITH ERROR` | 재시작하지 말고 `runs/01_download/error.txt`를 보고합니다 |
+
+## 요약 (보고서 끝에 붙일 문장)
+노트북 01은 Askos-V1-80M의 사전학습 데이터 소스 12개를 Modal Volume에 받았습니다. 소스별 실제 바이트, 리비전, 체크섬, verify 결과는 `reports/D1.md`에 있습니다. 판정이 통과면 노트북 02(정제, 중복 제거, 분할)로 넘어갑니다. **작업이 끝나면 에이전트에게 준 Modal · HF 토큰을 폐기하세요.**

@@ -1,7 +1,7 @@
 # 에이전트용 5줄 요약
 
-1. 지금 할 일은 **노트북 00(설정 점검)** 하나입니다. 순서는 `bash launch.sh setup` → 15~20분마다 `bash status.sh setup`입니다.
-2. `modal run`을 쓰지 않고, 같은 단계를 두 번 띄우지 않습니다(`CALL_ID.setup`). 토큰을 입력·출력하지 않습니다. 파일을 고치지 않습니다.
-3. Modal 시크릿 `huggingface`가 없으면 멈추고 사람에게 `modal secret create huggingface HF_TOKEN=...`을 요청합니다.
-4. 끝나면 `runs/00_setup/` 전부, `판정:` 줄, `속도:` 줄을 그대로 인용해 보고하고, 걸린 시간과 비용을 적습니다.
-5. 자세한 절차와 문제 대처는 `AGENT_INSTRUCTIONS.md`에 있습니다.
+1. 먼저 `git pull`. 지금 할 일은 **노트북 01(데이터 다운로드)**입니다: `bash launch.sh download` → 20~30분마다 `bash status.sh download`(진행률 표가 나옴). 몇 시간 걸립니다.
+2. `modal run`을 쓰지 않고, 같은 단계를 두 번 띄우지 않습니다(`CALL_ID.<단계>`, 재실행은 사람이 승인한 `--again`만). 토큰을 입력·출력하지 않습니다. 파일을 고치지 않습니다.
+3. 시크릿 `huggingface`가 없으면 멈추고 사람에게 요청합니다. 시크릿 `gcp`(Hacker News)는 선택이라 없어도 진행합니다.
+4. 끝나면 `runs/01_download/` 전부와 `판정:`, `속도:`, `실패:` 줄을 그대로 인용해 보고하고, 걸린 시간과 비용을 적습니다.
+5. 자세한 절차와 문제 대처는 `AGENT_INSTRUCTIONS.md`의 "노트북 01" 절에 있습니다(00은 이미 통과).

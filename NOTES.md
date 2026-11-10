@@ -10,3 +10,16 @@
 | D-06 | 본 학습(09)은 6시간 구간으로 나눕니다. 각 구간이 끝나면 Hub에 저장하고 다음 구간을 spawn합니다 | Modal 함수 하나의 타임아웃은 최대 24시간이고, 예산 24시간에 재개 시간을 더하면 이를 넘습니다. 사람은 한 번만 띄웁니다 |
 | D-07 | 저장소 루트가 구현서 §4의 `askos/`입니다. 여기에 `common/`, `setup_check/`, `modal_app.py`, `ops.py`를 더합니다 | 가이드의 "train.py 한 파일" 대신 구현서의 패키지 구조를 따르고, 노트북을 얇게 두는 원칙만 지킵니다 |
 | D-08 | 인프라 이름(Modal 앱, Volume, 시크릿, 상태 저장소, 단계별 GPU)은 `configs/infra.yaml`에 둡니다 | 규칙 1(숫자는 설정에만). 모델 설정(`askos_80m.yaml`)은 구현서와 같게 유지합니다(D-03 제외) |
+| D-09 | raw 문서에 `text, source, doc_id` 외에 작은 `meta` 사전을 둡니다. 예: `int_score`, `se_score`, `hn_score`, `code_score`, `url` | 구현서 §5.5-3의 감쇠 스트림이 FineWeb-Edu 5점, 고득점 StackExchange, HN 고득점, 교육 점수 상위 코드를 골라야 해서 필요합니다 |
+| D-10 | code 소스의 "상위 절반"은 구현서가 허용한 **대체 휴리스틱**(주석 비율, 줄 길이: `data/filters.py:code_quality`)으로 고릅니다. 기준값은 처음 2개 파일의 중앙값으로 정해 고정합니다 | Stack-Edu 분류기는 언어마다 GPU 분류기가 따로 필요해 v1에서는 쓰지 않습니다. v2 후보입니다 |
+| D-11 | 한 소스 안의 하위 소스 몫: 1차에 남은 목표를 활성 하위 소스에 똑같이 나누고, 소진된 하위 소스가 못 채운 몫은 다음 차례에 나머지가 나눠 채웁니다 | 구현서에 하위 소스별 비율이 없습니다. 가장 단순한 해석입니다 |
+| D-12 | HF 데이터는 `load_dataset(streaming=True)` 대신, 데이터셋 카드의 `configs → data_files`(또는 `configs/download.yaml`의 `hf.files`)로 고른 train 파일을 **한 커밋에 고정**해 직접 읽습니다 | 문서는 같습니다. 대신 (파일, 행) 단위로 정확히 이어 받을 수 있고, hf-xet으로 병렬로 받을 수 있습니다. 리비전은 D1.md에 기록합니다 |
+| D-13 | hacker_docs: RFC는 rsync로 받고(실패하면 rfc-index와 HTTP로 한 편씩), man-pages는 최신 upstream tarball을 groff로 렌더링합니다. "Debian manpages"는 upstream과 겹쳐 받지 않습니다. Jargon File은 4.4.7 텍스트판을 씁니다 | rfc-editor.org의 bulk tar 주소가 사라졌습니다(404, 2026-11-10 확인) |
+| D-14 | **LKML(lore.kernel.org)은 받지 않습니다** | robots.txt가 `User-agent: *`에 `Disallow: /`를 걸었고 AI 수집기 이름도 따로 막았습니다(2026-11-10 확인). 구현서 §5.2(robots 준수)를 따릅니다. geek_debate의 남은 몫은 lists.debian.org, irclogs, ConvoKit, HN이 나눠 채우고, 그래도 모자라면 §5.5-2 작은 소스 규칙(fineweb_edu로 채움)이 적용됩니다 |
+| D-15 | HN(BigQuery)은 선택 사항입니다. Modal 시크릿 `gcp`(GCP_SERVICE_ACCOUNT_JSON)가 있을 때만 받고, 쿼리당 스캔은 200GB로 제한합니다 | 사람의 GCP 결제 계정이 필요합니다. 없으면 건너뛰고 D1.md에 기록합니다 |
+| D-16 | Gutenberg: 구현서의 성(surname)을 카탈로그 저자 접두사로 바꿉니다(`configs/download.yaml`). Illustrator, Translator, Editor 역할은 제외합니다. 받을 때 PG 머리말과 꼬리말(라이선스 문구)을 잘라 냅니다 | "Swift", "Wells" 같은 성만으로는 다른 저자가 섞입니다. 같은 라이선스 문구가 책 수백 권에 반복되는 것도 막습니다 |
+| D-17 | peS2o는 v2를 씁니다 | 저장소 README가 "peS2o V2 (Latest)"라고 합니다. v3는 문서화돼 있지 않습니다 |
+| D-18 | StackExchange: 질문 하나당 문서 하나로 만들고, 점수 5 이상 답변을 모두 점수 순으로 붙입니다 | 답변마다 문서를 만들면 질문이 반복돼 중복 제거(§5.4)와 충돌합니다 |
+| D-19 | DCLM "상위 10%": 처음 4개 파일의 fastText 점수 90% 분위수를 기준값으로 고정합니다 | 전체 분포는 4T 토큰을 다 읽어야 알 수 있습니다. DCLM 샤드는 무작위 분할이라 앞 파일로 추정해도 됩니다 |
+| D-20 | irclogs는 2025-10-31부터 거꾸로 하루씩 받고 입장·퇴장·닉 변경 줄을 뺍니다. lists.debian.org는 요청 6,000회까지만 보냅니다(초당 1회) | 재현성(고정 날짜)과 사이트 부담 제한 때문입니다 |
+| D-21 | OpenStax: CC BY 책은 `retired` 상태도 포함합니다 | 2026-11-10 기준 CC BY 38권 가운데 앞쪽 표본이 모두 `retired`였습니다(새 판은 NC-SA로 바뀐 경우가 많음). 옛 판도 CC BY 그대로이고, 판 사이의 근사 중복은 §5.4가 처리합니다 |
