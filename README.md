@@ -32,7 +32,7 @@
 ## 상태 (정직하게)
 - **00:** Modal에서 통과했습니다. 실측값은 `RESULTS_LOG.md`에 있습니다.
 - **01 (코드만, Modal 실행 없음):**
-  - 오프라인 시험 `tests/test_download.py` 15개 통과: 목표 배분, 컨테이너가 죽은 뒤 중복 없이 재개, 실패한 하위 소스 재시도, robots.txt, md5, 이어 받기, 파서·필터
+  - 오프라인 시험 `tests/test_download.py` 16개 통과: 목표 배분, 컨테이너가 죽은 뒤 중복 없이 재개, 실패한 하위 소스 재시도, robots.txt, md5, 이어 받기, 파서·필터
   - 이 세션에서 실제 데이터로 작게 돌려 확인한 것:
     - DCLM 30MB: 상위 10% 기준값 0.525
     - github-code-clean: 라이선스 필터, 품질 기준값 0.565
@@ -40,6 +40,8 @@
     - HF 소스 11개 파일 목록과 리비전
     - Gutenberg 카탈로그(책 823권 + Abbott)
     - lists.debian.org, irclogs, ConvoKit, Jargon File 4.4.7, man-pages 6.20, RFC 목록 8,873편
-  - **안 돌려 본 것:** StackExchange(7z), BigQuery HN, OpenStax PDF 변환, 전체 규모 실행. 속도와 시간은 실측 전입니다.
+    - Hacker News 공개 아카이브(`open-index/hacker-news`): 2020-01 스레드 1,296개, 69MB
+  - **안 돌려 본 것:** StackExchange(7z), OpenStax PDF 변환, 전체 규모 실행. 속도와 시간은 실측 전입니다.
+  - 필요한 키는 HF 토큰 하나뿐입니다. BigQuery(GCP 키)는 쓰지 않습니다(NOTES.md D-15).
   - LKML은 robots.txt가 막아서 받지 않습니다(NOTES.md D-14).
 - 구현서에서 벗어난 결정은 `NOTES.md`에 있습니다(D-01~D-20).

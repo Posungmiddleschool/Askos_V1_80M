@@ -89,7 +89,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 
 ## 금지 사항 (00과 같음, 추가 1개)
 - 위 00의 금지 사항을 모두 지킵니다.
-- 시크릿 `gcp`는 선택입니다. 없으면 HN만 빠지고 나머지는 그대로 진행합니다. 에이전트가 키를 만들거나 입력하지 않습니다.
+- 이 프로젝트가 쓰는 시크릿은 `huggingface` 하나뿐입니다. 다른 키나 서비스 계정을 만들거나 요구하지 않습니다.
 
 ## 단계
 1. `git pull`
@@ -102,7 +102,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 ### 시간대별로 기대하는 로그 (`modal app logs askos-v1-80m`)
 | 시각 | 줄 |
 |---|---|
-| 0~15분 | 이미지 재빌드(apt: p7zip, rsync, poppler, groff / pip: google-cloud-bigquery). 이미지가 바뀌었으니 첫 실행 한 번만 |
+| 0~15분 | 이미지 재빌드(apt: p7zip, rsync, poppler, groff). 이미지가 바뀌었으니 첫 실행 한 번만 |
 | 시작 | `[download] 12개 소스 병렬 시작: [...]` |
 | 소스마다 | `실행 정보: ...`, `다운로드 시작: <소스> 목표 X GB`, `할당 1차: ...` |
 | 진행 중 | `저장: <하위 소스> 유닛 i/N · 누적 X GB · 문서 N` (256MB마다) |
@@ -113,7 +113,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 ## 끝나면
 - `runs/01_download/`의 파일을 모두 전달합니다: `D1.md`, `summary.json`, `*.log.txt`, `*.report.json`
 - 그대로 인용할 줄: `판정:` 줄 전부, `속도:` 줄 전부, `실패:` 줄 전부
-- 총 시간과 Modal 비용(대시보드)을 적습니다. BigQuery를 썼다면 GCP 비용도 적습니다.
+- 총 시간과 Modal 비용(대시보드)을 적습니다.
 
 ## 문제 대처표
 | 증상 | 조치 |
@@ -124,8 +124,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 | `md5 mismatch` (StackExchange) | archive.org 파일 손상이나 변경입니다. 보고합니다 |
 | `verify failed: ...` | 데이터셋 필드나 구조가 바뀐 것입니다. 파일을 고치지 말고 오류 줄 그대로 보고합니다 |
 | 소스 판정 `소스 소진(작은 소스)` | 정상일 수 있습니다(예: hacker_docs, rebel_classics). 부족분은 노트북 02의 분할 규칙이 FineWeb-Edu로 채웁니다 |
-| geek_debate에서 `lore_lkml` 0바이트, `skipped` | 정상입니다. lore.kernel.org가 robots.txt로 막았습니다(NOTES.md D-14) |
-| `bigquery_hacker_news` `skipped` | 시크릿 `gcp`가 없으면 정상입니다 |
+| geek_debate에서 `lore_lkml` 0바이트, `skipped` | 정상입니다. lore.kernel.org가 robots.txt로 막았습니다(NOTES.md D-14). 남는 몫은 HN 스레드가 채웁니다 |
 | Volume 용량 부족 | 보고합니다(raw는 압축해서 약 30~40GB 예상) |
 | `ENDED WITH ERROR` | 재시작하지 말고 `runs/01_download/error.txt`를 보고합니다 |
 

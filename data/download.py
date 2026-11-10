@@ -19,8 +19,9 @@ from data.polite import Polite
 from data.profiles import profile_for
 from data.quota import Filler
 from data.readers.hf import HFReader, URLListReader
-from data.readers.web import (RFC, Convokit, DebianLists, Gutenberg, HackerNews, IrcLogs, Jargon, LKML,
-                              ManPages, OpenStax, StackExchange, WikiDump)
+from data.readers.hn import HNThreads
+from data.readers.web import (RFC, Convokit, DebianLists, Gutenberg, IrcLogs, Jargon, LKML, ManPages, OpenStax,
+                              StackExchange, WikiDump)
 
 
 def load_dl_cfg():
@@ -45,7 +46,10 @@ def build_readers(spec, dl, polite, tmp, state_dir):
     name, out = spec["name"], []
     for s in spec["sources"]:
         k, sid = s["kind"], s.get("id", "")
-        if k == "hf":
+        if k == "hf" and sid == "open-index/hacker-news":
+            out.append(HNThreads(name, sid, dl["filters"]["hn_min_story_score"], dl["geek_debate"]["hn_comment_window_months"],
+                                 tmp, state_dir))
+        elif k == "hf":
             configs = s.get("config")
             for c in (configs if isinstance(configs, list) else [configs]):
                 prof, hint_key = profile_for(name, sid, c, dl["filters"])
@@ -73,8 +77,6 @@ def build_readers(spec, dl, polite, tmp, state_dir):
             out += [LKML(name, dl, polite, tmp, state_dir), DebianLists(name, dl, polite, tmp, state_dir)]
         elif k == "url" and "irclogs" in sid:
             out.append(IrcLogs(name, dl, polite, tmp, state_dir))
-        elif k == "bigquery":
-            out.append(HackerNews(name, dl, polite, tmp, state_dir))
         elif k == "convokit":
             out.append(Convokit(name, sid, dl, polite, tmp, state_dir))
         elif k == "gutenberg":

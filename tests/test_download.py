@@ -22,6 +22,7 @@ from data.polite import Polite, RobotsDisallowed  # noqa: E402
 from data.quota import Filler  # noqa: E402
 from data.readers import Reader, doc  # noqa: E402
 from data.readers.hf import _train_patterns, iter_rows  # noqa: E402
+from data.readers.hn import build_threads  # noqa: E402
 from data.readers.web import join_posts, parse_wiki_dump  # noqa: E402
 
 
@@ -160,6 +161,20 @@ def test_jargon_version_order():
     from data.readers.web import Jargon
     names = ["jarg2912.txt", "jarg447.txt", "jarg446.txt", "jarg300.txt"]
     assert max(names, key=Jargon.version) == "jarg447.txt"
+
+
+def test_hn_threads():
+    def r(i, t, parent=0, score=0, text="", title="", dead=0):
+        return {"id": i, "type": t, "parent": parent, "score": score, "text": text, "title": title, "url": "", "dead": dead, "deleted": 0}
+    m0 = [r(1, 1, score=150, title="Big story"), r(2, 1, score=5, title="small"), r(3, 2, parent=1, text="first &amp; top"),
+          r(4, 2, parent=3, text="reply<p>two paras"), r(5, 2, parent=2, text="on small"), r(6, 2, parent=1, text="dead", dead=1)]
+    m1 = [r(9, 2, parent=4, text="late deep reply"), r(8, 2, parent=1, text="second top"), r(7, 2, parent=6, text="child of dead")]
+    out = build_threads([m0, m1], 100)
+    assert [o[0] for o in out] == [1]
+    sid, text, score, n = out[0]
+    assert score == 150 and n == 4 and "dead" not in text and "child of dead" not in text and "on small" not in text
+    assert text.index("first & top") < text.index("  reply") < text.index("    late deep reply") < text.index("second top")
+    assert "  reply\n\n  two paras" in text
 
 
 def test_join_posts():

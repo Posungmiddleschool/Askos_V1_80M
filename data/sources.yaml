@@ -56,7 +56,7 @@
   weight: 0.06
   read_gb: 1.92
   sources:
-    - {kind: bigquery, id: bigquery-public-data.hacker_news.full, filter: "threads with story score >= 100", verify: true}
+    - {kind: hf, id: open-index/hacker-news, text: text, filter: "threads with story score >= 100", verify: true}   # was BigQuery (needs a GCP key); NOTES.md D-15
     - {kind: url, id: "lore.kernel.org LKML and lists.debian.org archives", verify: true}
     - {kind: url, id: "irclogs.ubuntu.com"}
     - {kind: convokit, id: winning-args-corpus}

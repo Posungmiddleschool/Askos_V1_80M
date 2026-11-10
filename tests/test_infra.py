@@ -71,7 +71,6 @@ def test_modal_app_matches_infra():
     assert c["TOK_PATTERNS"] == TOK_PATTERNS
     o = _module_constants("ops.py")
     assert o["APP_NAME"] == c["APP_NAME"] and o["HF_SECRET"] == c["HF_SECRET"] and o["VOLUME_NAME"] == c["VOLUME_NAME"]
-    assert o["GCP_SECRET"] == c["GCP_SECRET"]
 
 
 def test_gpu_probes_match_infra():

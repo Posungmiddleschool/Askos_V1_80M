@@ -21,6 +21,7 @@ hf:
     codeparrot/github-code-clean: "data/train-*.parquet"
     mlfoundations/dclm-baseline-1.0: "global-shard_*/local-shard_*/*.jsonl.zst"
     open-web-math/open-web-math: "data/train-*.parquet"
+    open-index/hacker-news: "data/*/*.parquet"          # monthly archive only (not the live "today/" blocks)
     heegyu/namuwiki-extracted: "*.parquet"
 
 filters:
@@ -54,8 +55,7 @@ geek_debate:
   irclogs_last_day: "2025-10-31"
   irclogs_max_days: 4000
   convokit_url: "https://zissou.infosci.cornell.edu/convokit/datasets/winning-args-corpus/winning-args-corpus.zip"
-  bigquery_requires_secret: gcp # optional Modal secret with GCP_SERVICE_ACCOUNT_JSON; skipped (and reported) if absent
-  bigquery_max_bytes_billed: 200000000000   # hard cap per query (200 GB scanned); a bigger query fails instead of billing
+  hn_comment_window_months: 3  # comments of a story are collected from its month and the next 2 (HN threads go quiet in weeks)
 
 hacker_docs:
   rfc_rsync: "rsync.rfc-editor.org::rfcs-text-only"

@@ -42,7 +42,7 @@ image = (
     .pip_install("einops==0.8.0", FLASH_ATTN_WHEEL)
     .pip_install("numpy==1.26.4", "numba==0.60.0", "datasets==3.2.0", "huggingface_hub==0.33.4", "hf-xet==1.1.5",
                  "zstandard==0.23.0", "datasketch==1.6.5", "pyyaml==6.0.2", "pytest==8.3.4",
-                 "psutil==6.1.1", "pybind11==2.13.6", "google-cloud-bigquery==3.27.0")
+                 "psutil==6.1.1", "pybind11==2.13.6")
     .env({"HF_HOME": "/root/hf_cache", "HF_XET_HIGH_PERFORMANCE": "1", "PYTHONUNBUFFERED": "1",
           "TOKENIZERS_PARALLELISM": "false"})
     .add_local_dir(HERE, REMOTE_ROOT, ignore=["**/__pycache__/**", "**/*.pyc", ".git/**", "runs/**",
@@ -50,11 +50,7 @@ image = (
 )
 app = modal.App(APP_NAME, image=image)
 data_vol = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
-hf_secret = modal.Secret.from_name(HF_SECRET)
-# Optional secret for the Hacker News sub-source (BigQuery). ops.py sets ASKOS_GCP=1 at deploy time only
-# when a Modal secret named "gcp" exists, so a missing secret never breaks the deploy.
-GCP_SECRET = "gcp"
-OPTIONAL_SECRETS = [modal.Secret.from_name(GCP_SECRET)] if os.environ.get("ASKOS_GCP") == "1" else []
+hf_secret = modal.Secret.from_name(HF_SECRET)   # the only secret the project uses
 
 # Same patterns as common/redact.py (tests/test_infra.py checks they are identical).
 TOK_PATTERNS = [
@@ -251,7 +247,7 @@ SOURCE_NAMES = ["fineweb_edu", "dclm_top", "code", "korean_web", "papers_books",
                 "geek_debate", "namuwiki", "wikipedia", "hacker_docs", "rebel_classics"]  # = data/sources.yaml
 
 
-@app.function(cpu=4.0, memory=32768, timeout=24 * 3600, secrets=[hf_secret] + OPTIONAL_SECRETS,
+@app.function(cpu=4.0, memory=32768, timeout=24 * 3600, secrets=[hf_secret],
               volumes={VOL_PATH: data_vol})
 def download_source(name: str, git_commit: str = "unknown"):
     """One source -> /vol/raw/<name>/. Resumable from /vol/raw/<name>/_state.json."""

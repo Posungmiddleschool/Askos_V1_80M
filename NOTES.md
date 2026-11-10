@@ -16,7 +16,7 @@
 | D-12 | HF 데이터는 `load_dataset(streaming=True)` 대신, 데이터셋 카드의 `configs → data_files`(또는 `configs/download.yaml`의 `hf.files`)로 고른 train 파일을 **한 커밋에 고정**해 직접 읽습니다 | 문서는 같습니다. 대신 (파일, 행) 단위로 정확히 이어 받을 수 있고, hf-xet으로 병렬로 받을 수 있습니다. 리비전은 D1.md에 기록합니다 |
 | D-13 | hacker_docs: RFC는 rsync로 받고(실패하면 rfc-index와 HTTP로 한 편씩), man-pages는 최신 upstream tarball을 groff로 렌더링합니다. "Debian manpages"는 upstream과 겹쳐 받지 않습니다. Jargon File은 4.4.7 텍스트판을 씁니다 | rfc-editor.org의 bulk tar 주소가 사라졌습니다(404, 2026-11-10 확인) |
 | D-14 | **LKML(lore.kernel.org)은 받지 않습니다** | robots.txt가 `User-agent: *`에 `Disallow: /`를 걸었고 AI 수집기 이름도 따로 막았습니다(2026-11-10 확인). 구현서 §5.2(robots 준수)를 따릅니다. geek_debate의 남은 몫은 lists.debian.org, irclogs, ConvoKit, HN이 나눠 채우고, 그래도 모자라면 §5.5-2 작은 소스 규칙(fineweb_edu로 채움)이 적용됩니다 |
-| D-15 | HN(BigQuery)은 선택 사항입니다. Modal 시크릿 `gcp`(GCP_SERVICE_ACCOUNT_JSON)가 있을 때만 받고, 쿼리당 스캔은 200GB로 제한합니다 | 사람의 GCP 결제 계정이 필요합니다. 없으면 건너뛰고 D1.md에 기록합니다 |
+| D-15 | **HN은 BigQuery 대신 공개 HF 아카이브 `open-index/hacker-news`(odc-by, 2006~현재, 월별 parquet)에서 받습니다.** 점수 100 이상인 스토리마다, 그 달과 다음 2달의 댓글을 트리(답글 깊이만큼 들여쓰기)로 붙여 스레드 문서 하나를 만듭니다. 최신 달부터 거꾸로 받고, 댓글 기간이 아직 다 차지 않은 마지막 3달은 뺍니다 | 구상자 결정(2026-11-10): "HF 토큰 말고 키나 서비스 계정이 필요한 소스는 모두 빼고, 고품질 공개 데이터셋을 쓴다". 구현서 §1-5(§5의 소스만)의 예외이며, 필터(score ≥ 100)는 구현서와 같습니다. 2020-01 실측: 스레드 1,296개, 69MB |
 | D-16 | Gutenberg: 구현서의 성(surname)을 카탈로그 저자 접두사로 바꿉니다(`configs/download.yaml`). Illustrator, Translator, Editor 역할은 제외합니다. 받을 때 PG 머리말과 꼬리말(라이선스 문구)을 잘라 냅니다 | "Swift", "Wells" 같은 성만으로는 다른 저자가 섞입니다. 같은 라이선스 문구가 책 수백 권에 반복되는 것도 막습니다 |
 | D-17 | peS2o는 v2를 씁니다 | 저장소 README가 "peS2o V2 (Latest)"라고 합니다. v3는 문서화돼 있지 않습니다 |
 | D-18 | StackExchange: 질문 하나당 문서 하나로 만들고, 점수 5 이상 답변을 모두 점수 순으로 붙입니다 | 답변마다 문서를 만들면 질문이 반복돼 중복 제거(§5.4)와 충돌합니다 |

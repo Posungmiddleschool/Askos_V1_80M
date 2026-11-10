@@ -1,5 +1,6 @@
 """Readers for non-HF sources: archive.org StackExchange, Wikimedia dumps, RFC, man-pages, Jargon File,
-Gutenberg, OpenStax, irclogs.ubuntu.com, lists.debian.org, lore.kernel.org (LKML), ConvoKit, HN (BigQuery).
+Gutenberg, OpenStax, irclogs.ubuntu.com, lists.debian.org, lore.kernel.org (LKML, robots-blocked), ConvoKit.
+Hacker News is in data/readers/hn.py (public HF archive).
 
 Each reader freezes its unit list at the first run (<state_dir>/_files_<sub>.json) so resume points stay
 valid, downloads through data.polite.Polite (robots.txt, per-host interval, retries, checksums) and
@@ -540,77 +541,3 @@ class Convokit(Frozen):
             text = "\n\n".join(t for _, t in sorted(conv[cid], key=lambda x: x[0]))
             yield row, doc(text, self.source, f"cmv:{cid}", n_utterances=len(conv[cid]))
         self._clean_tmp()
-
-
-class HackerNews(Frozen):
-    """bigquery-public-data.hacker_news.full: threads of stories with score >= min, one unit per year.
-    Needs the optional Modal secret `gcp` (GCP_SERVICE_ACCOUNT_JSON); without it the sub-source is skipped."""
-
-    def __init__(self, source, cfg, polite, tmp_dir, state_dir):
-        super().__init__(source, "bigquery_hacker_news", polite, tmp_dir, state_dir)
-        self.min_score = cfg["filters"]["hn_min_story_score"]
-        self.max_bytes = int(cfg["geek_debate"]["bigquery_max_bytes_billed"])
-
-    def _compute_units(self):
-        if not os.environ.get("GCP_SERVICE_ACCOUNT_JSON"):
-            return [], {"skipped": "no GCP_SERVICE_ACCOUNT_JSON (optional Modal secret 'gcp' not attached)"}
-        return [str(y) for y in range(2025, 2006, -1)], {}
-
-    def _client(self):
-        from google.cloud import bigquery
-        from google.oauth2 import service_account
-        info = json.loads(os.environ["GCP_SERVICE_ACCOUNT_JSON"])
-        creds = service_account.Credentials.from_service_account_info(info)
-        return bigquery.Client(credentials=creds, project=info["project_id"])
-
-    SQL = """
-    WITH RECURSIVE t AS (
-      SELECT id, id AS root, 0 AS depth FROM `bigquery-public-data.hacker_news.full`
-      WHERE type = 'story' AND score >= @min AND EXTRACT(YEAR FROM timestamp) = @year
-        AND (dead IS NULL OR NOT dead) AND (deleted IS NULL OR NOT deleted)
-      UNION ALL
-      SELECT c.id, t.root, t.depth + 1 FROM `bigquery-public-data.hacker_news.full` c JOIN t ON c.parent = t.id
-      WHERE c.type = 'comment' AND t.depth < 60 AND (c.dead IS NULL OR NOT c.dead) AND (c.deleted IS NULL OR NOT c.deleted)
-    )
-    SELECT t.root, t.depth, f.id, f.parent, f.title, f.text, f.url, f.score, f.timestamp
-    FROM t JOIN `bigquery-public-data.hacker_news.full` f ON f.id = t.id
-    ORDER BY t.root, f.timestamp
-    """
-
-    @staticmethod
-    def _txt(s):
-        s = html.unescape(s or "")
-        s = re.sub(r"<p>", "\n\n", s)
-        return re.sub(r"<[^>]+>", "", s).strip()
-
-    def docs(self, unit_idx, start_row):
-        from google.cloud import bigquery
-        year = int(self.unit(unit_idx))
-        job = self._client().query(self.SQL, job_config=bigquery.QueryJobConfig(maximum_bytes_billed=self.max_bytes, query_parameters=[
-            bigquery.ScalarQueryParameter("min", "INT64", self.min_score),
-            bigquery.ScalarQueryParameter("year", "INT64", year)]))
-        threads = {}
-        for r in job.result(page_size=50_000):
-            threads.setdefault(r["root"], []).append(dict(r.items()))
-        for row, root in enumerate(sorted(threads)):
-            if row < start_row:
-                continue
-            items = threads[root]
-            story = next((x for x in items if x["id"] == root), None)
-            if story is None:
-                continue
-            kids = {}
-            for x in items:
-                if x["id"] != root:
-                    kids.setdefault(x["parent"], []).append(x)
-            out = [story.get("title") or "", story.get("url") or "", self._txt(story.get("text"))]
-
-            def walk(pid, depth):
-                for c in kids.get(pid, []):
-                    t = self._txt(c.get("text"))
-                    if t:
-                        out.append("  " * depth + t.replace("\n", "\n" + "  " * depth))
-                    walk(c["id"], depth + 1)
-            walk(root, 0)
-            yield row, doc("\n\n".join(x for x in out if x), self.source, f"hn:{root}", hn_score=story.get("score"),
-                           n_comments=len(items) - 1, year=year)

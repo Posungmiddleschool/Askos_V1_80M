@@ -22,7 +22,6 @@ STAGES = {
     "setup": ("setup", "runs/00_setup", lambda commit: {"git_commit": commit, "gpus": "L4,L40S,H100"}),
     "download": ("download", "runs/01_download", lambda commit: {"git_commit": commit, "sources": "all"}),
 }
-GCP_SECRET = "gcp"   # optional (Hacker News via BigQuery)
 TOK = [re.compile(r"hf_[A-Za-z0-9]{20,}"), re.compile(r"\b(?:ak|as)-[A-Za-z0-9]{16,}")]
 
 
@@ -81,13 +80,7 @@ def launch(stage, again):
         print(f"Modal 시크릿 '{HF_SECRET}'이 없습니다. 사람이 터미널에서 직접:\n"
               f"  modal secret create {HF_SECRET} HF_TOKEN=<HF 쓰기 토큰>\n(에이전트는 토큰을 입력하지 않습니다.)")
         return 2
-    env = dict(os.environ)
-    if re.search(rf"(^|\W){re.escape(GCP_SECRET)}(\W|$)", secrets):
-        env["ASKOS_GCP"] = "1"
-        print("선택 시크릿 'gcp'가 있어 Hacker News(BigQuery)를 포함합니다.")
-    elif stage == "download":
-        print("선택 시크릿 'gcp'가 없어 Hacker News(BigQuery)는 건너뜁니다(D1.md에 기록됨).")
-    subprocess.run(["modal", "deploy", "modal_app.py"], cwd=HERE, check=True, env=env)
+    subprocess.run(["modal", "deploy", "modal_app.py"], cwd=HERE, check=True)
     import modal
     commit = git_commit()
     call = modal.Function.from_name(APP_NAME, fn).spawn(**kwargs(commit))
