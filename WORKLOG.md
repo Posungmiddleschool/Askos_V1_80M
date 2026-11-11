@@ -62,7 +62,7 @@
 | `4553140` | 11-11 | WORKLOG.md 추가, CLAUDE.md에 "WORKLOG 먼저 읽고 함께 고치기" 규칙 |
 | `2ba8dd6`, `f47a475` | 11-11 | 순차 이어받기: `--takeover`(A가 실행 중으로 남긴 잠금을 바로 넘겨받음), 넘겨받힌 컨테이너는 하위 프로세스를 멈추고 업로드하지 않음, 하트비트 10분, HF 업로드 20분 간격, 문서 전부 A→B 순서로 고침 |
 | `99deb1c` | 11-11 | 사람이 멈추는 흐름: `bash stop.sh <단계>`(Modal Dict `askos-control` 플래그 → 작업자가 1분 안에 멈추고, HF에 올린 뒤 잠금을 `paused`로 풂). B는 그냥 `bash launch.sh`로 이어 감. `--takeover`는 A가 stop 없이 죽었을 때만. 프롬프트 3개(A 실행, A 멈춤, B 이어서) |
-| (이번 커밋) | 11-11 | **01 1차 실패 수정:** 간접 의존성까지 모두 고정한 `requirements/image.lock.txt`(42개, uv로 생성. pyarrow 18.1.0·pandas 2.2.3·scipy 1.14.1이 numpy 1.26.4와 호환)를 이미지에 씀. `setup_check/imports.py`(모든 패키지를 실제로 import하고 동작시킴)를 추가해 01 시작 전에 사전 점검하고, 실패하면 작업자를 띄우지 않음. 00의 CPU 점검에도 추가. lock 일관성 시험 추가 |
+| `9b49ca6` | 11-11 | **01 1차 실패 수정:** 간접 의존성까지 모두 고정한 `requirements/image.lock.txt`(42개, uv로 생성. pyarrow 18.1.0·pandas 2.2.3·scipy 1.14.1이 numpy 1.26.4와 호환)를 이미지에 씀. `setup_check/imports.py`(모든 패키지를 실제로 import하고 동작시킴)를 추가해 01 시작 전에 사전 점검하고, 실패하면 작업자를 띄우지 않음. 00의 CPU 점검에도 추가. lock 일관성 시험 추가 |
 
 ---
 
