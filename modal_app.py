@@ -10,9 +10,10 @@ Stages in this file so far:
   download    (notebook 01) -> download() on CPU, which spawns download_source(name) per source (12 in parallel)
   hub_status  (any)         -> lock table of the shared HF namespace (ops.py calls it for status/launch)
 
-Several Modal accounts (NOTES.md D-23): each account has its own Volume, used only as a cache. The shared
-truth is one HF namespace (configs/infra.yaml hub.namespace): locks/<key>.json in the state repo decide who
-runs what, and stage artifacts go to the data repo (pushed at the end and every hub.push_every_min).
+Several Modal accounts, one after another (NOTES.md D-23): account A runs everything; when A's free credits
+run out, account B takes over (`launch --takeover`) and resumes from the shared HF namespace. Each account's
+Volume is only a cache; locks/<key>.json in the state repo say who holds what, and stage artifacts go to the
+data repo (pushed every hub.push_every_min and at the end), so B loses at most that much of A's work.
 """
 import json
 import os
@@ -99,12 +100,13 @@ def _upload(local_dir, hub_dir, msg):
     return None
 
 
-def _run(cmd, env, tag, hub_dir=None, vol=None, vol_commit_every_min=5, hooks=()):
+def _run(cmd, env, tag, hub_dir=None, vol=None, vol_commit_every_min=5, hooks=(), proc_holder=None):
     """Run `cmd` in REMOTE_ROOT. Each line: redact -> print -> log file. Log goes to the Hub every
     LOG_UPLOAD_EVERY_MIN minutes and at the end (only when hub_dir and a token are present).
     With `vol`, the Volume is committed every `vol_commit_every_min` minutes and at the end, so a
     killed container loses at most a few minutes of downloaded parts.
-    `hooks`: [(every_min, fn)] called periodically in a thread (lock heartbeat, artifact push)."""
+    `hooks`: [(every_min, fn)] called periodically in a thread (lock heartbeat, artifact push).
+    `proc_holder`: dict that receives the child process as ["p"], so a hook can stop it (lost lock)."""
     run_dir = f"{RUNS}/{tag}"
     os.makedirs(run_dir, exist_ok=True)
     log_path = f"{run_dir}/log.txt"
@@ -139,6 +141,8 @@ def _run(cmd, env, tag, hub_dir=None, vol=None, vol_commit_every_min=5, hooks=()
     with open(log_path, "w", encoding="utf-8") as f:
         p = subprocess.Popen(cmd, cwd=REMOTE_ROOT, env=full_env, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True, bufsize=1, errors="replace")
+        if proc_holder is not None:
+            proc_holder["p"] = p
         for line in p.stdout:
             line = _redact(line.rstrip("\n"))
             print(line, flush=True)
@@ -288,7 +292,8 @@ def _local_state_bytes(name):
 
 @app.function(cpu=4.0, memory=32768, timeout=24 * 3600, secrets=[hf_secret],
               volumes={VOL_PATH: data_vol})
-def download_source(name: str, git_commit: str = "unknown", account: str = "unknown", redo_done: bool = False):
+def download_source(name: str, git_commit: str = "unknown", account: str = "unknown", redo_done: bool = False,
+                    takeover: bool = False):
     """One source -> /vol/raw/<name>/ -> data repo raw/<name>/. Holds lock download/<name> while running.
     If the data repo already has more of this source than the local Volume (another account worked on it),
     the local copy is replaced by the remote one first, so the download resumes instead of restarting."""
@@ -298,11 +303,13 @@ def download_source(name: str, git_commit: str = "unknown", account: str = "unkn
     cfg = load_infra()["hub"]
     key, owner, store = f"download/{name}", _owner(account), _lock_store()
     try:
-        hub.acquire(store, key, owner, cfg["lock_stale_hours"], force=redo_done, info={"git": git_commit})
+        lk = hub.acquire(store, key, owner, cfg["lock_stale_hours"], force=redo_done, info={"git": git_commit},
+                         takeover=takeover)
     except (hub.LockHeld, hub.AlreadyDone) as e:
         print(f"[download_source] {name}: 건너뜀 ({e})", flush=True)
         return {"tag": f"download_{name}", "returncode": 0, "skipped": str(e), "report": None, "log": ""}
-    print(f"[download_source] {name}: 잠금 획득 {owner}", flush=True)
+    print(f"[download_source] {name}: 잠금 획득 {owner}" +
+          (f" (이어받음: {lk['took_over_from']})" if lk.get("took_over_from") else ""), flush=True)
     data_vol.reload()
     remote = hub.remote_json(f"raw/{name}/_state.json")
     rb = sum(x["bytes"] for x in (remote or {}).get("subs", {}).values())
@@ -314,19 +321,31 @@ def download_source(name: str, git_commit: str = "unknown", account: str = "unkn
         hub.pull_dir(VOL_PATH, f"raw/{name}")
         data_vol.commit()
 
+    lost = threading.Event()
+    holder = {}
+
     def beat():
         b, t = _local_state_bytes(name)
-        if not hub.heartbeat(store, key, owner, {"bytes": b, "target": t}):
-            print(f"[download_source] {name}: 잠금을 잃었습니다(오래 멈춰 다른 계정이 인수). 업로드하지 않습니다.", flush=True)
+        if not lost.is_set() and not hub.heartbeat(store, key, owner, {"bytes": b, "target": t}):
+            lost.set()   # another account took over (--takeover or stale): stop, never overwrite its uploads
+            print(f"[download_source] {name}: 잠금을 잃었습니다(다른 계정이 이어받음). 작업을 멈추고 업로드하지 않습니다.", flush=True)
+            if holder.get("p"):
+                holder["p"].terminate()
 
     def push():
+        if lost.is_set():
+            return
         data_vol.commit()
         hub.push_dir(VOL_PATH, f"raw/{name}")
 
     res = _run([sys.executable, "-m", "data.download", "source", name, "--out", RAW, "--tmp", "/tmp/askos_dl",
                 "--report", f"{RUNS}/download_{name}/report.json"],
                {"GIT_COMMIT": git_commit}, f"download_{name}", hub_dir=f"01_download/{name}", vol=data_vol,
-               hooks=[(cfg["heartbeat_every_min"], beat), (cfg["push_every_min"], push)])
+               hooks=[(cfg["heartbeat_every_min"], beat), (cfg["push_every_min"], push)], proc_holder=holder)
+    beat()
+    if lost.is_set():
+        res["lost_lock"] = True
+        return res
     try:
         push()
         res["pushed"] = True
@@ -355,11 +374,12 @@ def hub_status(prefix: str = ""):
 
 
 @app.function(cpu=2.0, memory=8192, timeout=24 * 3600, secrets=[hf_secret], volumes={VOL_PATH: data_vol})
-def download(git_commit: str = "unknown", sources: str = "all", account: str = "unknown", redo_done: bool = False):
+def download(git_commit: str = "unknown", sources: str = "all", account: str = "unknown", redo_done: bool = False,
+             takeover: bool = False):
     """Notebook 01. Spawns one container per requested source (each takes its own lock), waits, then writes
     reports/D1.md over all 12 sources: sources this account did not run are read from the data repo."""
     names = SOURCE_NAMES if sources == "all" else [s for s in sources.split(",") if s]
-    calls = {n: download_source.spawn(n, git_commit, account, redo_done) for n in names}
+    calls = {n: download_source.spawn(n, git_commit, account, redo_done, takeover) for n in names}
     print(f"[download] {len(calls)}개 소스 병렬 시작: {names}", flush=True)
     runs = {}
     for n, c in calls.items():

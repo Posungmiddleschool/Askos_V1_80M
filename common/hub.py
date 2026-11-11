@@ -184,16 +184,18 @@ def _retry(fn, tries=10):
     raise RuntimeError("lock: too much contention on the state repo")
 
 
-def acquire(store, key, owner, stale_hours, force=False, info=None, now=None):
-    """Take `key` for `owner`. Raises LockHeld / AlreadyDone. `force` takes over a done lock (a human-approved
-    rerun); a running lock of another owner is never forced unless its heartbeat is stale."""
+def acquire(store, key, owner, stale_hours, force=False, info=None, now=None, takeover=False):
+    """Take `key` for `owner`. Raises LockHeld / AlreadyDone.
+    `force`: also redo a done lock (a human-approved rerun).
+    `takeover`: take a running lock of another owner at once, without waiting for it to go stale. This is the
+    hand-over from an account whose credits ran out to the next account (human-approved, NOTES.md D-23)."""
     def attempt():
         t = now if now is not None else time.time()
         head = store.head()
         cur = _read_lock(store, key, head)
         if cur:
             alive = t - cur.get("heartbeat", 0) < stale_hours * 3600
-            if cur["status"] == "running" and cur["owner"] != owner and alive:
+            if cur["status"] == "running" and cur["owner"] != owner and alive and not takeover:
                 raise LockHeld(cur)
             if cur["status"] == "done" and not force:
                 raise AlreadyDone(cur)
@@ -202,7 +204,8 @@ def acquire(store, key, owner, stale_hours, force=False, info=None, now=None):
             hist = (hist + [{k: cur.get(k) for k in ("owner", "status", "started", "finished", "summary")}])[-10:]
         lock = {"key": key, "owner": owner, "status": "running", "started": t, "heartbeat": t, "finished": None,
                 "attempt": (cur or {}).get("attempt", 0) + 1, "info": info or {}, "progress": {}, "summary": None,
-                "history": hist, "took_over_stale": bool(cur and cur["status"] == "running" and cur["owner"] != owner)}
+                "history": hist, "took_over_stale": bool(cur and cur["status"] == "running" and cur["owner"] != owner),
+                "took_over_from": cur["owner"] if cur and cur["status"] == "running" and cur["owner"] != owner else None}
         _write(store, key, lock, head, f"lock {key}: {owner} starts")
         return lock
     return _retry(attempt)

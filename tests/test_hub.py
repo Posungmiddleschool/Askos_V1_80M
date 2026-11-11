@@ -67,6 +67,26 @@ def test_stale_lock_can_be_taken_over_and_old_owner_notices():
     assert not hub.release(s, "download/code", "acctA:alice", "done", now=33 * H)
 
 
+def test_takeover_when_credits_run_out():
+    s = hub.MemStore()
+    hub.acquire(s, "download/code", "acctA:askos", 30, now=0)
+    hub.heartbeat(s, "download/code", "acctA:askos", {"bytes": 3, "target": 10}, now=H)
+    try:
+        hub.acquire(s, "download/code", "acctB:askos", 30, now=2 * H)         # A's lock is still fresh
+        raise AssertionError("took a live lock without --takeover")
+    except hub.LockHeld:
+        pass
+    lk = hub.acquire(s, "download/code", "acctB:askos", 30, now=2 * H, takeover=True)
+    assert lk["took_over_from"] == "acctA:askos" and lk["owner"] == "acctB:askos"
+    assert not hub.heartbeat(s, "download/code", "acctA:askos", now=3 * H)     # A (if it ever wakes up) stops
+    hub.release(s, "download/code", "acctB:askos", "done", now=4 * H)
+    try:
+        hub.acquire(s, "download/code", "acctA:askos", 30, now=5 * H, takeover=True)
+        raise AssertionError("takeover must not redo a done unit")
+    except hub.AlreadyDone:
+        pass
+
+
 def test_same_owner_resumes_its_own_running_lock():
     s = hub.MemStore()
     hub.acquire(s, "download/code", "acctA:alice", 30, now=0)

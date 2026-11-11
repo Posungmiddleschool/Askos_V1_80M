@@ -21,9 +21,10 @@ hub:
   state_repo: askos-v1-80m-state  # private model repo: locks/, logs, reports, checkpoints
   data_repo: askos-v1-80m-data    # private dataset repo: stage artifacts (raw/<source>/..., later bins)
   log_upload_every_min: 30
-  heartbeat_every_min: 30
+  heartbeat_every_min: 10         # also how fast a taken-over container notices and stops
   lock_stale_hours: 30            # a running lock without a heartbeat for this long may be taken over
-  push_every_min: 60              # artifacts are pushed to the data repo this often and at the end
+  push_every_min: 20              # artifacts are pushed to the data repo this often and at the end; when an
+                                  # account's credits run out, the next account loses at most this much work
 
 probe:
   volume_write_mb: 512

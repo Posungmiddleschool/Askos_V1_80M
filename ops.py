@@ -1,13 +1,13 @@
 """Local launcher used by launch.sh / status.sh. Runs on the machine of whoever drives Modal.
 
-python3 ops.py launch <stage> [--sources a,b] [--redo-done] [--again]
+python3 ops.py launch <stage> [--takeover] [--again] [--redo-done] [--sources a,b]
 python3 ops.py status <stage>
 python3 ops.py whoami                       Modal account (profile) and the shared HF namespace
 
-Several Modal accounts (NOTES.md D-23): each machine/agent drives its own Modal account. CALL_ID.<stage>
-only prevents launching twice from this machine; who may run which unit of work across accounts is decided
-by the locks in the shared HF state repo (common/hub.py), which `launch` shows before spawning and which
-every Modal function takes again before working.
+Several Modal accounts, one after another (NOTES.md D-23): account A does everything; when A's free credits
+run out, a human tells account B's agent to run `launch <stage> --takeover`, which takes over A's unfinished
+work units and resumes from the shared HF repos. CALL_ID.<stage> only prevents launching twice from this
+machine; across accounts the locks in the shared HF state repo (common/hub.py) decide.
 
 Exit codes: 0 ok/finished, 1 refused (already running, finished or held by another account),
 2 precondition missing, 3 running, 4 ended with error.
@@ -99,11 +99,12 @@ def kwargs_for(stage, commit, acct, args):
     if stage == "setup":
         return {"git_commit": commit, "gpus": "L4,L40S,H100", "account": acct}
     if stage == "download":
-        return {"git_commit": commit, "sources": ",".join(args["sources"]), "account": acct, "redo_done": args["redo_done"]}
+        return {"git_commit": commit, "sources": ",".join(args["sources"]), "account": acct, "redo_done": args["redo_done"],
+                "takeover": args["takeover"]}
     raise KeyError(stage)
 
 
-def launch(stage, again, sources=None, redo_done=False):
+def launch(stage, again, sources=None, redo_done=False, takeover=False):
     fn, _, lock_prefix = STAGES[stage]
     cp = call_id_path(stage)
     if os.path.exists(cp):
@@ -127,7 +128,7 @@ def launch(stage, again, sources=None, redo_done=False):
         return 2
     acct = account()
     subprocess.run(["modal", "deploy", "modal_app.py"], cwd=HERE, check=True)
-    args = {"sources": list(sources or SOURCE_NAMES), "redo_done": redo_done}
+    args = {"sources": list(sources or SOURCE_NAMES), "redo_done": redo_done, "takeover": takeover}
     if lock_prefix:
         h = hub_status(lock_prefix)
         print_hub(h)
@@ -140,8 +141,8 @@ def launch(stage, again, sources=None, redo_done=False):
                 lk = h["locks"].get(f"download/{s}")
                 if lk and lk["status"] == "done" and not redo_done:
                     skipped.append(f"{s}(완료: {lk['owner']})")
-                elif lk and lk["status"] == "running" and not lk["owner"].startswith(acct + ":"):
-                    skipped.append(f"{s}(실행 중: {lk['owner']})")
+                elif lk and lk["status"] == "running" and not lk["owner"].startswith(acct + ":") and not takeover:
+                    skipped.append(f"{s}(실행 중: {lk['owner']}. 그 계정의 크레딧이 끝났으면 사람 승인 뒤 --takeover)")
                 else:
                     free.append(s)
             if skipped:
@@ -149,6 +150,10 @@ def launch(stage, again, sources=None, redo_done=False):
             if not free:
                 print("이 계정이 맡을 소스가 남아 있지 않습니다.")
                 return 1
+            if takeover:
+                taken = [s for s in free if (h["locks"].get(f"download/{s}") or {}).get("status") == "running"
+                         and not h["locks"][f"download/{s}"]["owner"].startswith(acct + ":")]
+                print(f"이어받기(--takeover): 다른 계정이 하다 멈춘 소스 {taken}를 이 계정이 HF에 올라간 지점부터 이어 받습니다.")
             args["sources"] = free
             print(f"이 계정({acct})이 맡을 소스 {len(free)}개: {free}")
     import modal
@@ -250,7 +255,9 @@ def main():
     ap.add_argument("cmd", choices=["launch", "status", "whoami"])
     ap.add_argument("stage", nargs="?", choices=sorted(STAGES))
     ap.add_argument("--again", action="store_true", help="relaunch from this machine (only after a human approved)")
-    ap.add_argument("--sources", help="download only: comma-separated subset of sources for this account")
+    ap.add_argument("--takeover", action="store_true",
+                    help="take over units another account left running (its credits ran out); human approval")
+    ap.add_argument("--sources", help="download only: optional subset of sources (default: all)")
     ap.add_argument("--redo-done", action="store_true", help="download only: also redo sources marked done (human approval)")
     a = ap.parse_args()
     if a.cmd == "whoami":
@@ -264,7 +271,7 @@ def main():
         bad = [s for s in (srcs or []) if s not in SOURCE_NAMES]
         if bad:
             ap.error(f"unknown sources: {bad}")
-        sys.exit(launch(a.stage, a.again, srcs, a.redo_done))
+        sys.exit(launch(a.stage, a.again, srcs, a.redo_done, a.takeover))
     sys.exit(status(a.stage))
 
 

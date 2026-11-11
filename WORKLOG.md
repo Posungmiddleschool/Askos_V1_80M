@@ -3,7 +3,7 @@
 이 프로젝트에서 **무엇을 했고, 무엇을 안 했고, 무엇이 남았는지** 적는 작업 일지입니다.
 새 세션의 Claude, 사람, 실행 에이전트는 **이 파일부터** 읽습니다. 코드를 바꿀 때마다 이 파일도 함께 고칩니다(CLAUDE.md 규칙).
 
-- 마지막 갱신: 2026-11-11, 커밋 `0e6396b` 다음
+- 마지막 갱신: 2026-11-11 (순차 이어받기 반영)
 - 저장소: `Posungmiddleschool/Askos_V1_80M`, 브랜치 `main`
 - 기준 문서: 구현서 `ASKOS_PRETRAIN_v7.md`(커서와 새김), `MODAL_NOTEBOOK_GUIDE.md`. 둘 다 사용자가 대화에 첨부한 파일이고, **저장소에는 없습니다**(아래 "열린 문제" 1)
 
@@ -25,7 +25,7 @@
 | 09 | 본 사전학습 (24 GPU시간, H100) | 안 만듦 | — | — |
 | 10 | 평가·보고서 | 안 만듦 | — | — |
 
-**다음 할 일:** 두 계정으로 노트북 01을 실행합니다(프롬프트는 6절). 그 결과(D1.md)를 보고 노트북 02를 만듭니다.
+**다음 할 일:** 계정 A로 노트북 01을 실행합니다(프롬프트는 6.1절). A의 크레딧이 떨어지면 계정 B가 이어받습니다(6.2절). 그 결과(D1.md)를 보고 노트북 02를 만듭니다.
 
 ---
 
@@ -41,6 +41,7 @@
 | 11-10 | HF 토큰 말고 다른 키나 서비스 계정이 필요한 소스는 뺍니다(BigQuery HN 제거) |
 | 11-10 | 질이 낮다고 판단한 소스는 최신 고품질 공개 데이터셋으로 모두 바꿉니다(데이터 v1.1) |
 | 11-11 | Modal 계정을 2개 씁니다(사용자와 친구, Volume은 각자). 해법 2: **공유 기준은 HF, 각 Volume은 캐시** |
+| 11-11 | **계정 A가 전부 하고, A의 무료 크레딧이 떨어지면 계정 B가 이어받습니다**(나눠서 동시에 하지 않음). B는 사람 승인 뒤 `--takeover` |
 | 11-11 | HF 조직은 쓰지 않습니다. **HF 계정 하나(`AskosAILabs`)**를 두 Modal 계정이 함께 씁니다 |
 
 ---
@@ -58,6 +59,8 @@
 | `78f6b59` | 11-10 | 데이터 v1.1: 하위 소스를 고품질 데이터셋으로 교체(4절 표, NOTES D-22) |
 | `0febcda` | 11-11 | 여러 Modal 계정 지원: `common/hub.py`(HF 잠금, 하트비트, 넘겨받기, push/pull), `hub_status`, `ops.py --sources/--redo-done/whoami`, 00은 계정별로, NOTES D-23 |
 | `0e6396b` | 11-11 | 공유 네임스페이스를 HF 계정 `AskosAILabs` 하나로 정함(조직 안 씀) |
+| `4553140` | 11-11 | WORKLOG.md 추가, CLAUDE.md에 "WORKLOG 먼저 읽고 함께 고치기" 규칙 |
+| (이번 커밋) | 11-11 | 순차 이어받기: `--takeover`(A가 실행 중으로 남긴 잠금을 바로 넘겨받음), 넘겨받힌 컨테이너는 하위 프로세스를 멈추고 업로드하지 않음, 하트비트 10분, HF 업로드 20분 간격, 문서 전부 A→B 순서로 고침 |
 
 ---
 
@@ -113,7 +116,7 @@
 - **오프라인 시험:**
   - `tests/test_infra.py` 10개
   - `tests/test_download.py` 18개
-  - `tests/test_hub.py` 6개
+  - `tests/test_hub.py` 7개
   - 모두 통과
 - **실제 데이터로 작게 받아 본 것:**
   - DCLM 30MB, Stack-Edu 4MB, GitHub archive·PEP·UltraData L2·FineWiki ko·LibreTexts·OER·arXiv(CP)·korean-webtext-edu·FinePDFs-Edu kor 각 4MB, FineMath·Proof-Pile 각 6MB
@@ -127,17 +130,16 @@
 - StackExchange 7z 압축 풀기(이 세션에 7z가 없음)
 - RFC rsync 모듈 이름 `rfcs-text-only`(틀리면 HTTP로 넘어가는데 약 2.5시간)
 - **HF 잠금과 push/pull을 실제 HF에서 쓰는 것.** 이 세션에는 HF 토큰이 없습니다. 부모 커밋이 맞지 않을 때 HF가 주는 응답 코드는 409나 412로 가정했고, 메시지에 "parent"가 있는 경우도 처리합니다.
-- 두 계정이 실제로 동시에 도는 상황
+- A에서 B로 실제로 이어받는 흐름(`--takeover`, HF pull, 넘겨받힌 쪽 컨테이너가 스스로 멈추는 것)
 - 노트북 00의 새 점검 항목(`hf_shared_repos`, `shared_namespace`). 00이 통과한 커밋(`5e4fc3e`)보다 뒤에 추가됐습니다.
 
 ---
 
 ## 6. 지금 에이전트에게 보낼 프롬프트 (노트북 01)
 
-두 계정 모두 같고, `--sources`만 다릅니다.
-- **계정 A:** `fineweb_edu,dclm_top,code,korean_web,papers_books,math`
-- **계정 B:** `stackexchange,geek_debate,namuwiki,wikipedia,hacker_docs,rebel_classics`
+**순서:** 계정 A가 전부 합니다. A의 무료 크레딧이 떨어지면, 사람이 확인한 뒤 계정 B가 이어받습니다(NOTES.md D-23).
 
+### 6.1 계정 A의 에이전트에게 (지금 보낼 것)
 ```
 Askos-V1-80M 프로젝트의 노트북 01(데이터 다운로드)을 Modal에서 실행해 줘. 노트북 00은 이미 통과했어.
 
@@ -148,17 +150,33 @@ Askos-V1-80M 프로젝트의 노트북 01(데이터 다운로드)을 Modal에서
    python3 tests/test_infra.py && python3 tests/test_download.py && python3 tests/test_hub.py
    python3 ops.py whoami → Modal 계정 이름과 공유 HF 네임스페이스(AskosAILabs여야 함)를 알려 줘.
    Modal 시크릿 huggingface가 없으면 멈추고 나에게 말해. 토큰은 내가 직접 넣어.
-3. bash launch.sh download --sources <이 계정이 맡을 소스>
+3. bash launch.sh download   (소스 12개 전부)
    출력된 공유 잠금 표와 "이 계정이 맡을 소스" 줄을 보여 줘.
 4. 20~30분마다 bash status.sh download로 진행률을 확인해. 2~4시간쯤 걸릴 수 있어.
 5. 끝나면 runs/01_download/의 D1.md와 summary.json, 로그의 "판정:", "속도:", "실패:" 줄을 그대로 인용하고,
    총 시간과 Modal 비용도 알려 줘.
 
-지킬 것: modal run 금지. --again·--redo-done은 내 승인 없이 쓰지 마. 공유 잠금을 지우거나 우회하지 마.
+크레딧이 떨어지거나 결제 오류가 나면 다시 시도하지 말고, 그 오류 줄과 bash status.sh download 출력을 그대로 보고하고 멈춰.
+지킬 것: modal run 금지. --again·--redo-done·--takeover는 내 승인 없이 쓰지 마. 공유 잠금을 지우거나 우회하지 마.
 파일을 고치지 마. 토큰을 입력하거나 출력하지 마. ENDED WITH ERROR가 나오면 재시작하지 말고 error.txt를 그대로 보고해.
 ```
 
-계정 B에서 노트북 00을 한 번도 안 돌렸다면, 그 계정에서는 먼저 `bash launch.sh setup` → `bash status.sh setup`으로 통과를 확인합니다.
+### 6.2 계정 B의 에이전트에게 (A의 크레딧이 떨어진 것을 사람이 확인한 뒤에만)
+```
+Askos-V1-80M 프로젝트의 노트북 01을, 크레딧이 떨어져 멈춘 계정 A로부터 이어받아 Modal에서 실행해 줘.
+
+1. git clone https://github.com/Posungmiddleschool/Askos_V1_80M.git && cd Askos_V1_80M (있으면 git pull).
+   WORKLOG.md, 00_READ_ME_FIRST_AI_AGENT.md, AGENT_INSTRUCTIONS.md의 "노트북 01" 절을 먼저 읽어.
+2. pip install -q "modal>=1.0" pyyaml numpy, 시험 3개(test_infra, test_download, test_hub)를 돌려.
+   python3 ops.py whoami → Modal 계정 이름(계정 A와 달라야 함)과 공유 네임스페이스(AskosAILabs)를 알려 줘.
+   이 계정에서 노트북 00을 한 번도 안 돌렸다면 먼저 bash launch.sh setup → bash status.sh setup으로 통과를 확인해.
+3. bash launch.sh download --takeover
+   잠금 표, "이어받기" 줄, "이 계정이 맡을 소스" 줄을 보여 줘. A가 끝낸 소스는 자동으로 빠져.
+4~5. 계정 A용과 같아: 20~30분마다 bash status.sh download, 끝나면 D1.md·summary.json·"판정:"/"속도:"/"실패:" 줄·시간·비용 보고.
+
+지킬 것: modal run 금지. --takeover는 이번 한 번만. --again·--redo-done은 내 승인 없이 쓰지 마.
+잠금을 지우거나 우회하지 마. 파일을 고치지 마. 토큰을 입력하거나 출력하지 마.
+```
 
 ---
 
@@ -168,7 +186,7 @@ Askos-V1-80M 프로젝트의 노트북 01(데이터 다운로드)을 Modal에서
 2. **기본 브랜치:** GitHub 기본 브랜치가 아직 `ccr-cab7f42f-5h45f7`일 수 있습니다. Settings → General → Default branch에서 `main`으로 바꾸세요. 바꾸면 그 브랜치를 지워도 됩니다(내용은 `main`에 모두 있음).
 3. **토큰:**
    - `AskosAILabs` HF 계정에서 사람마다 따로 쓰기 토큰을 만들어, 각자 Modal 시크릿 `huggingface`에 넣습니다.
-   - 두 사람의 Modal 계정 이름(`ops.py whoami`)이 같으면 한쪽은 `ASKOS_ACCOUNT`를 지정합니다. 이름이 같으면 잠금이 두 계정을 구별하지 못합니다.
+   - 두 사람의 Modal 계정 이름(`ops.py whoami`)이 같으면 한쪽은 `ASKOS_ACCOUNT`를 지정합니다. 이름이 같으면 B의 `--takeover`가 A의 잠금을 "자기 것"으로 착각합니다.
 4. **HF 용량:** 무료 계정은 비공개 100GB입니다. raw(압축 약 35GB)와 다음 단계 결과물이 쌓이면 모자랄 수 있습니다. 02 단계가 끝나면 raw를 지우거나 PRO로 올립니다.
 5. **korean-webtext-edu:** 원본(HAERAE-HUB/KOREAN-WEBTEXT)의 라이선스가 적혀 있지 않습니다. 연구용이면 문제없지만, 상업적으로 쓰려면 빼야 합니다.
 6. **나무위키**(2021, 비영리 라이선스, 품질 중간)는 구현서대로 남겨 두었습니다. 빼거나 바꿀지는 사용자가 정합니다.

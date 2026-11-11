@@ -32,11 +32,15 @@ Modal Volume은 계정끼리 공유되지 않습니다. 그래서 **HF 계정 �
    - 잠금은 Modal 계정 이름으로 누가 했는지 구별합니다. `python3 ops.py whoami`에 두 사람의 계정 이름이 같게 나오면, 한 사람은 `export ASKOS_ACCOUNT=<다른 이름>`을 쓰세요.
 4. 계정마다 노트북 00을 한 번씩 돌립니다. `hf_shared_repos`와 `shared_namespace`가 통과하면 준비가 끝난 것입니다.
 
-**함께 돌리기:**
-- 각 에이전트는 자기 계정으로 `bash launch.sh download`를 실행합니다. 다른 계정이 하고 있거나 끝낸 소스는 공유 잠금 때문에 자동으로 빠집니다.
-- 일을 명시적으로 나누려면 `--sources`를 씁니다. 예: A 계정은 `--sources fineweb_edu,dclm_top,code,korean_web,papers_books,math`, B 계정은 나머지.
-- 한 계정이 멈추면 다른 계정이 HF에 올라간 데서부터 이어받습니다.
-- `python3 ops.py whoami`나 `bash status.sh download`로 모든 계정의 잠금 표를 볼 수 있습니다.
+**순서: A가 전부, A의 크레딧이 떨어지면 B가 이어받기**
+1. **계정 A**가 모든 단계를 그냥 실행합니다(`bash launch.sh download`, 소스 12개 전부). 진행 상황은 20분마다 HF에 올라갑니다.
+2. A의 무료 크레딧이 떨어져 작업이 멈추면(Modal에서 크레딧·결제 오류, 컨테이너가 죽음), A의 에이전트는 **보고만** 합니다.
+3. 사람이 확인한 뒤 **계정 B**의 에이전트에게 `bash launch.sh download --takeover`를 시킵니다.
+   - B는 A가 끝낸 소스는 건너뜁니다.
+   - A가 하다 멈춘 소스는 HF에 마지막으로 올라간 지점부터 이어 받습니다. 잃는 양은 최대 20분어치입니다.
+   - A의 컨테이너가 혹시 아직 살아 있으면, 10분 안에 잠금을 잃은 것을 알아차리고 스스로 멈춥니다. 업로드도 하지 않습니다.
+4. 다음 단계(02~)도 같은 방식입니다. 기본은 A이고, A가 바닥나면 B가 `--takeover`로 이어받습니다.
+- `python3 ops.py whoami`나 `bash status.sh download`로 공유 잠금 표(누가 무엇을 어디까지 했는지)를 볼 수 있습니다.
 
 ## 실행 방법 (노트북 00)
 1. **사람이 한 번:** `pip install modal && modal setup`, `modal secret create huggingface HF_TOKEN=<쓰기 토큰>`
