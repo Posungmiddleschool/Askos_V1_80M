@@ -61,7 +61,7 @@
 | `0e6396b` | 11-11 | 공유 네임스페이스를 HF 계정 `AskosAILabs` 하나로 정함(조직 안 씀) |
 | `4553140` | 11-11 | WORKLOG.md 추가, CLAUDE.md에 "WORKLOG 먼저 읽고 함께 고치기" 규칙 |
 | `2ba8dd6`, `f47a475` | 11-11 | 순차 이어받기: `--takeover`(A가 실행 중으로 남긴 잠금을 바로 넘겨받음), 넘겨받힌 컨테이너는 하위 프로세스를 멈추고 업로드하지 않음, 하트비트 10분, HF 업로드 20분 간격, 문서 전부 A→B 순서로 고침 |
-| (이번 커밋) | 11-11 | 사람이 멈추는 흐름: `bash stop.sh <단계>`(Modal Dict `askos-control` 플래그 → 작업자가 1분 안에 멈추고, HF에 올린 뒤 잠금을 `paused`로 풂). B는 그냥 `bash launch.sh`로 이어 감. `--takeover`는 A가 stop 없이 죽었을 때만. 프롬프트 3개(A 실행, A 멈춤, B 이어서) |
+| `99deb1c` | 11-11 | 사람이 멈추는 흐름: `bash stop.sh <단계>`(Modal Dict `askos-control` 플래그 → 작업자가 1분 안에 멈추고, HF에 올린 뒤 잠금을 `paused`로 풂). B는 그냥 `bash launch.sh`로 이어 감. `--takeover`는 A가 stop 없이 죽었을 때만. 프롬프트 3개(A 실행, A 멈춤, B 이어서) |
 
 ---
 
