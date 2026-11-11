@@ -1,0 +1,20 @@
+# Top-level Python deps of the Modal image (besides torch 2.6.0 cu124 and the flash-attn wheel, installed first).
+# requirements/image.lock.txt is generated from this file and pins EVERY transitive dependency:
+#   uv pip compile requirements/image.in -o requirements/image.lock.txt --python-version 3.11 \
+#       --python-platform x86_64-manylinux_2_28 --no-header --annotation-style line
+# Why pinned: on 2026-11-11 an unpinned pyarrow (26.0.1, NumPy >= 2 only) broke every parquet reader.
+numpy==1.26.4           # numba 0.60, our numba/triton code; NumPy 1.x ABI
+numba==0.60.0
+datasets==3.2.0
+pyarrow==18.1.0         # last line supporting NumPy 1.26 and 2.x; datasets 3.2 needs >= 15
+pandas==2.2.3           # pandas 3 dropped NumPy 1.x
+scipy==1.14.1           # datasketch dependency; last line built for NumPy 1.26
+huggingface_hub==0.33.4
+hf-xet==1.1.5
+zstandard==0.23.0
+datasketch==1.6.5
+pyyaml==6.0.2
+pytest==8.3.4
+psutil==6.1.1
+pybind11==2.13.6
+einops==0.8.0

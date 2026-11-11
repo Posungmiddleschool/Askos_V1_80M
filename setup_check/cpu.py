@@ -44,6 +44,14 @@ def xet_usable_by_hub():
     return True if is_xet_available() else None
 
 
+def imports():
+    from setup_check.imports import run
+    res = run()
+    bad = {k: v["detail"] for k, v in res.items() if not v["ok"]}
+    return {"ok": not bad, "versions": {k: v["detail"] for k, v in res.items() if v["ok"]}, "missing": list(bad),
+            "error": "; ".join(f"{k}: {v}" for k, v in bad.items())[:600]}
+
+
 def toolchain():
     out = {}
     for tool in ["g++", "cmake", "git", "zstd"]:
@@ -187,6 +195,7 @@ def main():
     pr = infra["probe"]
     c = Checks("setup_cpu")
     c.run("packages", packages)
+    c.run("imports", imports)
     c.run("toolchain", toolchain)
     c.run("resources", lambda: resources(a.vol))
     c.run("configs", configs)

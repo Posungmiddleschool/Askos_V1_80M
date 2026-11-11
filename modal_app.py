@@ -46,10 +46,9 @@ image = (
     .apt_install("build-essential", "cmake", "git", "pkg-config", "zstd", "libzstd-dev", "curl",
                  "p7zip-full", "rsync", "groff-base")
     .pip_install("torch==2.6.0", index_url=TORCH_INDEX)           # bundles triton 3.2.0
-    .pip_install("einops==0.8.0", FLASH_ATTN_WHEEL)
-    .pip_install("numpy==1.26.4", "numba==0.60.0", "datasets==3.2.0", "huggingface_hub==0.33.4", "hf-xet==1.1.5",
-                 "zstandard==0.23.0", "datasketch==1.6.5", "pyyaml==6.0.2", "pytest==8.3.4",
-                 "psutil==6.1.1", "pybind11==2.13.6")
+    # every other Python dependency, transitive ones included, from one lock file (requirements/image.in)
+    .pip_install_from_requirements(os.path.join(HERE, "requirements", "image.lock.txt"))
+    .pip_install(FLASH_ATTN_WHEEL, extra_options="--no-deps")      # its deps (torch, einops) are already pinned
     .env({"HF_HOME": "/root/hf_cache", "HF_XET_HIGH_PERFORMANCE": "1", "PYTHONUNBUFFERED": "1",
           "TOKENIZERS_PARALLELISM": "false"})
     .add_local_dir(HERE, REMOTE_ROOT, ignore=["**/__pycache__/**", "**/*.pyc", ".git/**", "runs/**",
@@ -404,6 +403,14 @@ def download(git_commit: str = "unknown", sources: str = "all", account: str = "
     """Notebook 01. Spawns one container per requested source (each takes its own lock), waits, then writes
     reports/D1.md over all 12 sources: sources this account did not run are read from the data repo."""
     names = SOURCE_NAMES if sources == "all" else [s for s in sources.split(",") if s]
+    pre = _run([sys.executable, "-m", "setup_check.imports"], {"GIT_COMMIT": git_commit}, "download_preflight",
+               hub_dir="01_download/preflight")
+    if pre["returncode"] != 0:      # fail fast: no worker is spawned, no lock is taken
+        print("판정: 01 다운로드 사전 점검 실패 (import). 작업자를 띄우지 않았습니다.", flush=True)
+        return {"stage": "download", "account": account, "git_commit": git_commit, "hub": None,
+                "verdict": "사전 점검 실패: 이미지의 Python 패키지 import 오류. 작업자를 띄우지 않았습니다",
+                "parts": {"preflight": pre.get("report")}, "runs": {"preflight": pre},
+                "summary_md": "# D1\n\n사전 점검(import) 실패. preflight 로그를 보세요.\n", "summary_file": "D1.md"}
     calls = {n: download_source.spawn(n, git_commit, account, redo_done, takeover) for n in names}
     print(f"[download] {len(calls)}개 소스 병렬 시작: {names}", flush=True)
     runs = {}

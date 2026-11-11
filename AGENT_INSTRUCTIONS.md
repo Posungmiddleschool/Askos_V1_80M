@@ -114,7 +114,8 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 ### 시간대별로 기대하는 로그 (`modal app logs askos-v1-80m`)
 | 시각 | 줄 |
 |---|---|
-| 0~15분 | 이미지 재빌드(apt: p7zip, rsync, groff). 이미지가 바뀌었으니 첫 실행 한 번만 |
+| 0~15분 | 이미지 재빌드(apt: p7zip, rsync, groff, pip: `requirements/image.lock.txt`). 이미지가 바뀌었으니 첫 실행 한 번만 |
+| 시작 직후 | `사전 점검 통과: import ...` 12줄, `판정: import 점검 통과`. 실패하면 작업자를 띄우지 않고 끝나니 그 줄을 그대로 보고합니다 |
 | 시작 | `[download] 12개 소스 병렬 시작: [...]` |
 | 소스마다 | `실행 정보: ...`, `다운로드 시작: <소스> 목표 X GB`, `할당 1차: ...` |
 | 진행 중 | `저장: <하위 소스> 유닛 i/N · 누적 X GB · 문서 N` (256MB마다) |
@@ -139,6 +140,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 | 하위 소스가 몇 MB에서 `소진` (libretexts, pressbooks, oercommons, PEP, kowikibooks) | 정상입니다. 원래 작은 데이터셋이고, 남은 몫은 같은 소스의 큰 하위 소스가 채웁니다 |
 | Volume 용량 부족 | 보고합니다(raw는 압축해서 약 30~40GB 예상) |
 | `ENDED WITH ERROR` | 재시작하지 말고 `runs/01_download/error.txt`를 보고합니다 |
+| `판정: 01 다운로드 사전 점검 실패 (import)` | 이미지의 패키지 문제입니다. 작업자는 하나도 뜨지 않았습니다. `runs/01_download/preflight.log.txt`를 그대로 보고합니다 |
 | `[download_source] <소스>: 건너뜀 (held by ...)` | 다른 계정이 그 소스를 하고 있습니다. 보고만 합니다 |
 | 사람이 "멈춰"라고 함 | `bash stop.sh download`를 실행하고 "멈춤 완료"까지 기다린 뒤 보고합니다 |
 | `멈춤 요청을 받았습니다 ... paused로 풉니다` | 정상입니다(stop의 결과) |

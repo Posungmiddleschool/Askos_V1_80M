@@ -78,6 +78,25 @@ def test_ops_source_names_match_manifest():
     assert o["SOURCE_NAMES"] == [x["name"] for x in load_sources()] == _module_constants("modal_app.py")["SOURCE_NAMES"]
 
 
+def test_image_lock_pins_every_top_level_dependency():
+    import re
+    top = {}
+    for line in open(os.path.join(ROOT, "requirements", "image.in"), encoding="utf-8"):
+        m = re.match(r"^([A-Za-z0-9_.-]+)==([^\s#]+)", line)
+        if m:
+            top[m.group(1).lower().replace("_", "-")] = m.group(2)
+    lock = {}
+    for line in open(os.path.join(ROOT, "requirements", "image.lock.txt"), encoding="utf-8"):
+        m = re.match(r"^([A-Za-z0-9_.-]+)==([^\s#]+)", line)
+        if m:
+            lock[m.group(1).lower().replace("_", "-")] = m.group(2)
+    assert top and all(lock.get(k) == v for k, v in top.items()), {k: (v, lock.get(k)) for k, v in top.items() if lock.get(k) != v}
+    assert all("==" in l for l in open(os.path.join(ROOT, "requirements", "image.lock.txt")) if l.strip() and not l.startswith("#"))
+    assert lock["numpy"].startswith("1.") and lock["pyarrow"] == "18.1.0"   # the pair that broke run 1 of notebook 01
+    src = open(os.path.join(ROOT, "modal_app.py"), encoding="utf-8").read()
+    assert 'pip_install_from_requirements(os.path.join(HERE, "requirements", "image.lock.txt"))' in src
+
+
 def test_gpu_probes_match_infra():
     src = open(os.path.join(ROOT, "modal_app.py"), encoding="utf-8").read()
     for g in load_infra()["modal"]["gpus"]["setup_probe"]:
