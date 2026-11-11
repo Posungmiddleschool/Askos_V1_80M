@@ -17,9 +17,11 @@ class RobotsDisallowed(Exception):
 
 
 class Polite:
-    def __init__(self, user_agent, min_interval_s=1.0, retries=5, backoff_s=4.0, timeout_s=120, opener=None):
+    def __init__(self, user_agent, min_interval_s=1.0, retries=5, backoff_s=4.0, timeout_s=120, opener=None,
+                 per_host_interval_s=None):
         self.ua = user_agent
         self.min_interval = min_interval_s
+        self.per_host = dict(per_host_interval_s or {})   # host -> interval, for static bulk hosts
         self.retries = retries
         self.backoff = backoff_s
         self.timeout = timeout_s
@@ -55,10 +57,11 @@ class Polite:
 
     def _wait(self, url):
         host = urllib.parse.urlsplit(url).netloc
+        gap = self.per_host.get(host, self.min_interval)
         with self._lock:
             now = time.time()
-            wait = self._last.get(host, 0) + self.min_interval - now
-            self._last[host] = max(now, self._last.get(host, 0) + self.min_interval)
+            wait = self._last.get(host, 0) + gap - now
+            self._last[host] = max(now, self._last.get(host, 0) + gap)
         if wait > 0:
             time.sleep(wait)
 

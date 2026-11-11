@@ -87,7 +87,8 @@ def run_source(name, out_root, tmp_root, codec="zst"):
         atomic_write_json(os.path.join(out_dir, "_report.json"), rep)
         return rep
     h = dl["http"]
-    polite = Polite(h["user_agent"], h["min_interval_s"], h["retries"], h["backoff_s"], h["timeout_s"])
+    polite = Polite(h["user_agent"], h["min_interval_s"], h["retries"], h["backoff_s"], h["timeout_s"],
+                    per_host_interval_s=h.get("per_host_interval_s"))
     readers = build_readers(spec, dl, polite, os.path.join(tmp_root, name), out_dir)
     log(f"다운로드 시작: {name} 목표 {tgt / 1e9:.2f} GB (= ({spec['read_gb']} + {spec.get('l3_gb', 0)}) x {dl['overshoot']}), 하위 소스 {len(readers)}개")
     t0 = time.time()

@@ -14,7 +14,8 @@ class Reader:
         return {}
 
 
-def doc(text, source, doc_id, **meta):
-    """Raw document. `meta` keeps only small fields that later steps use (decay stream, report)."""
+def doc(text, source, doc_id, /, **meta):
+    """Raw document. `meta` keeps only small fields that later steps use (decay stream, report).
+    text/source/doc_id are positional-only, so a dataset field named e.g. `source` (peS2o) can be a meta key."""
     return {"text": text, "source": source, "doc_id": str(doc_id),
             "meta": {k: v for k, v in meta.items() if v is not None}}

@@ -167,6 +167,42 @@ def test_profiles_for_v11_sources():
     assert p.keep({"text": "가", "score": 3.2}, R) and not p.keep({"text": "가", "score": 2.5}, R)
 
 
+def test_hf_hints_are_well_formed_and_cover_cardless_repos():
+    # 2026-11-11: namuwiki's files hint had slipped under shuffle_files (run found by the all-sources test)
+    dl = load_dl_cfg()
+    assert all(isinstance(v, str) and "*" in v for v in dl["hf"]["files"].values()), dl["hf"]["files"]
+    assert all(isinstance(v, int) for v in dl["hf"]["shuffle_files"].values()), dl["hf"]["shuffle_files"]
+    cardless = ["allenai/peS2o", "EleutherAI/proof-pile-2/algebraic-stack", "mlfoundations/dclm-baseline-1.0",
+                "heegyu/namuwiki-extracted", "open-index/hacker-news"]
+    cardless += [x["id"] for s in load_sources() for x in s["sources"] if x.get("id", "").startswith("common-pile/")]
+    assert not [r for r in cardless if r not in dl["hf"]["files"]]
+
+
+def test_every_hf_profile_builds_a_document():
+    # 2026-11-11: peS2o's meta field `source` collided with doc()'s `source` argument
+    from data.profiles import profile_for
+    f = load_dl_cfg()["filters"]
+
+    class R:
+        calib = {"threshold": 0.0}
+    rec = {"text": "t", "content": "t", "code": "t", "title": "T", "id": "i", "url": "u", "source": "s2ag/train",
+           "score": 4.0, "int_score": 4, "language_score": 0.95, "quality_label": "4",
+           f["dclm_score_field"]: 0.9, "metadata": "{'language': 'Python', 'license': 'MIT'}", "meta": {"hexsha": "h"}}
+    seen = set()
+    for s in load_sources():
+        for x in s["sources"]:
+            if x["kind"] != "hf" or x["id"] == "open-index/hacker-news":
+                continue
+            cfgs = x.get("config")
+            for c in (cfgs if isinstance(cfgs, list) else [cfgs]):
+                p, _ = profile_for(s["name"], x["id"], c, f)
+                assert p.keep(dict(rec), R), (x["id"], c)
+                d = p.make(dict(rec, _q=1.0), "unit", 3, R)
+                assert d["text"] and d["source"] == s["name"] and d["doc_id"], (x["id"], c)
+                seen.add(x["id"])
+    assert "allenai/peS2o" in seen and len(seen) >= 15
+
+
 def test_shuffle_hint_is_deterministic():
     import random
     files = [f"f{i:03d}" for i in range(95)]
@@ -262,6 +298,25 @@ class _Resp(io.BytesIO):
 
     def __exit__(self, *a):
         self.close()
+
+
+def test_polite_per_host_interval():
+    import time
+    calls = []
+
+    def opener(req, timeout=None):
+        calls.append(time.time())
+        return _Resp(b"" if req.full_url.endswith("/robots.txt") else b"x")
+    pol = Polite("t", 0.2, opener=opener, per_host_interval_s={"fast.example": 0.0})
+    t = time.time()
+    for _ in range(3):
+        pol.get("https://fast.example/a")
+    fast = time.time() - t
+    t = time.time()
+    for _ in range(3):
+        pol.get("https://slow.example/a")
+    slow = time.time() - t
+    assert fast < 0.15 and slow >= 0.35, (fast, slow)
 
 
 def test_polite_robots_and_checksum():

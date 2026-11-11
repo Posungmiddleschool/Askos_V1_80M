@@ -9,6 +9,8 @@ max_doc_errors: 30              # per sub-source; above this the sub-source is m
 http:
   user_agent: "askos-data-research/1.0 (pretraining dataset build; respects robots.txt)"
   min_interval_s: 1.0           # per host, between requests
+  per_host_interval_s:          # static bulk hosts where one request per second would take hours
+    www.rfc-editor.org: 0.25    # 8,873 RFC text files when rsync is refused (2026-11-11: refused from the test host)
   retries: 5
   backoff_s: 4.0
   timeout_s: 120
@@ -28,11 +30,11 @@ hf:
     common-pile/oercommons_filtered: "*.json.gz"
     common-pile/github_archive_filtered: "*.json.gz"
     common-pile/python_enhancement_proposals_filtered: "*.json.gz"
+    heegyu/namuwiki-extracted: "*.parquet"
   shuffle_files:                # seeded permutation of the frozen file list (repos whose files are grouped)
     common-pile/stackv2_edu_filtered: 1234   # files are grouped by language; read a mix
     common-pile/github_archive_filtered: 1234
     HuggingFaceFW/finepdfs-edu: 1234
-    heegyu/namuwiki-extracted: "*.parquet"
 
 filters:
   fineweb_edu_min_int_score: 4

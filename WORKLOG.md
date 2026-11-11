@@ -63,6 +63,7 @@
 | `2ba8dd6`, `f47a475` | 11-11 | 순차 이어받기: `--takeover`(A가 실행 중으로 남긴 잠금을 바로 넘겨받음), 넘겨받힌 컨테이너는 하위 프로세스를 멈추고 업로드하지 않음, 하트비트 10분, HF 업로드 20분 간격, 문서 전부 A→B 순서로 고침 |
 | `99deb1c` | 11-11 | 사람이 멈추는 흐름: `bash stop.sh <단계>`(Modal Dict `askos-control` 플래그 → 작업자가 1분 안에 멈추고, HF에 올린 뒤 잠금을 `paused`로 풂). B는 그냥 `bash launch.sh`로 이어 감. `--takeover`는 A가 stop 없이 죽었을 때만. 프롬프트 3개(A 실행, A 멈춤, B 이어서) |
 | `9b49ca6` | 11-11 | **01 1차 실패 수정:** 간접 의존성까지 모두 고정한 `requirements/image.lock.txt`(42개, uv로 생성. pyarrow 18.1.0·pandas 2.2.3·scipy 1.14.1이 numpy 1.26.4와 호환)를 이미지에 씀. `setup_check/imports.py`(모든 패키지를 실제로 import하고 동작시킴)를 추가해 01 시작 전에 사전 점검하고, 실패하면 작업자를 띄우지 않음. 00의 CPU 점검에도 추가. lock 일관성 시험 추가 |
+| (이번 커밋) | 11-11 | **전체 소스 시험으로 찾은 버그 2개 수정:** peS2o 메타 필드 충돌(`doc()`의 세 인자를 위치 전용으로), 나무위키 파일 힌트 위치. 회귀 시험 3개 추가(힌트 형식, 모든 프로필의 문서 생성, 호스트별 간격). RFC HTTP 간격 0.25초 |
 
 ---
 
@@ -118,7 +119,7 @@
 ### 5.2 이 세션(Claude 쪽)에서 Modal 없이 확인한 것
 - **오프라인 시험:**
   - `tests/test_infra.py` 10개
-  - `tests/test_download.py` 18개
+  - `tests/test_download.py` 21개
   - `tests/test_hub.py` 8개
   - 모두 통과
 - **실제 데이터로 작게 받아 본 것:**
@@ -133,12 +134,15 @@
   - `python -m setup_check.imports`: 12개 모두 통과
   - `pytest tests`: 37개 통과
 - 1차 실패는 같은 환경에서 lock 없이 설치해 그대로 재현했습니다: pyarrow 26.0.1 + numpy 1.26.4 → ImportError
-- 같은 환경에서 `sources.yaml`의 하위 소스 전부를 실제 네트워크로 조금씩 받아 봤습니다(결과는 아래 줄).
+- 같은 환경에서 `sources.yaml`의 **하위 소스 31개 전부**를 실제 네트워크로 1.5MB씩 받아 봤습니다(7z·rsync·groff도 설치).
+  - 1차: 26개 통과. **버그 2개 발견**: peS2o(메타 필드 `source`가 `doc()` 인자와 충돌), 나무위키(v1.1 편집 때 파일 힌트가 `shuffle_files` 밑으로 밀림). 나머지 3개는 도구가 없어서 실패.
+  - 수정 뒤: **31개 전부 통과.** StackExchange는 7z 풀기와 md5 검증, 질문·답변 묶기까지 확인(2개 사이트 12,067문서). man-pages는 groff 렌더링 확인. RFC는 이 시험 호스트에서 rsync가 거부돼 HTTP 경로로 확인.
+  - RFC가 HTTP로 떨어지면 8,873편이라 호스트별 간격을 0.25초로 두었습니다(약 40분).
 
 ### 5.3 아직 한 번도 안 돌려 본 것
 - 노트북 01 전체 실행. 속도, 시간, 비용 모두 추정뿐입니다(전체 2~4시간, 약 $5~15).
-- StackExchange 7z 압축 풀기(이 세션에 7z가 없음)
-- RFC rsync 모듈 이름 `rfcs-text-only`(틀리면 HTTP로 넘어가는데 약 2.5시간)
+- StackExchange의 큰 사이트(math 3.6GB) 처리. 작은 사이트 2개로는 확인했습니다.
+- RFC rsync(시험 호스트에서는 연결 거부). Modal에서도 거부되면 HTTP로 약 40분.
 - **HF 잠금과 push/pull을 실제 HF에서 쓰는 것.** 이 세션에는 HF 토큰이 없습니다. 부모 커밋이 맞지 않을 때 HF가 주는 응답 코드는 409나 412로 가정했고, 메시지에 "parent"가 있는 경우도 처리합니다.
 - A에서 B로 실제로 이어받는 흐름: `stop.sh`(Modal Dict 플래그, 멈춤 뒤 HF 업로드, paused 잠금), B에서 HF를 받아 이어 가기, 비상용 `--takeover`
 - 노트북 00의 새 점검 항목(`hf_shared_repos`, `shared_namespace`). 00이 통과한 커밋(`5e4fc3e`)보다 뒤에 추가됐습니다.
