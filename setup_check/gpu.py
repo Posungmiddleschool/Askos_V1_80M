@@ -100,6 +100,31 @@ def numba_check():
     return {"ok": csum(a) == a.sum(), "numba": numba.__version__}
 
 
+def numba_cuda_check():
+    """ROADMAP §5.4: the cursor scan kernel is planned as a numba.cuda kernel (one thread per document,
+    sequential loop, zero-copy torch tensors). This only checks that such a kernel compiles and runs here."""
+    import numba
+    from numba import cuda
+    if not cuda.is_available():
+        return {"ok": False, "error": "numba.cuda.is_available() is False (NVVM / CUDA_HOME?)"}
+
+    @cuda.jit
+    def kern(x, out):
+        i = cuda.grid(1)
+        if i < x.size:
+            s = 0
+            j = 0
+            while j < 8:            # per-thread sequential loop, like the scan
+                s += x[i] * j
+                j += 1
+            out[i] = s
+    x = torch.arange(1024, device="cuda", dtype=torch.int64)
+    out = torch.zeros_like(x)
+    kern[4, 256](cuda.as_cuda_array(x), cuda.as_cuda_array(out))
+    cuda.synchronize()
+    return {"ok": bool((out == x * 28).all()), "numba": numba.__version__, "zero_copy_torch": True}
+
+
 def hbm(target_gb):
     """Allocate 1 GB blocks until target (or OOM). Required only where a target is set."""
     blocks, got = [], 0.0
@@ -132,6 +157,7 @@ def main():
     c.run("triton", triton_kernel)
     c.run("torch_compile", compile_check)
     c.run("numba", numba_check)
+    c.run("numba_cuda", numba_cuda_check, required=False)
     c.run("hbm", lambda: hbm(pr["hbm_target_gb"].get(a.label)))
     sys.exit(0 if c.write(a.report, {"run_info": info, "label": a.label, "device": dev}) else 1)
 

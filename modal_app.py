@@ -50,7 +50,7 @@ image = (
     .pip_install_from_requirements(os.path.join(HERE, "requirements", "image.lock.txt"))
     .pip_install(FLASH_ATTN_WHEEL, extra_options="--no-deps")      # its deps (torch, einops) are already pinned
     .env({"HF_HOME": "/root/hf_cache", "HF_XET_HIGH_PERFORMANCE": "1", "PYTHONUNBUFFERED": "1",
-          "TOKENIZERS_PARALLELISM": "false"})
+          "TOKENIZERS_PARALLELISM": "false", "CUDA_HOME": "/usr/local/cuda"})   # CUDA_HOME: numba.cuda finds NVVM
     .add_local_dir(HERE, REMOTE_ROOT, ignore=["**/__pycache__/**", "**/*.pyc", ".git/**", "runs/**",
                                               "CALL_ID.*", "**/.ipynb_checkpoints/**", "*.ipynb"])  # always last
 )
