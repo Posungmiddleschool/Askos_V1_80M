@@ -23,12 +23,13 @@
 | 10 | `10_eval_report` | 검증 BPB, `reports/P3.md` | H100 | 예정 |
 
 ## 여러 Modal 계정으로 함께 하기 (NOTES.md D-23)
-Modal Volume은 계정끼리 공유되지 않습니다. 그래서 **HF 조직 하나**를 공유 기준 저장소로 쓰고, 각 계정의 Volume은 캐시로만 씁니다.
+Modal Volume은 계정끼리 공유되지 않습니다. 그래서 **HF 계정 하나(`AskosAILabs`)**를 공유 기준 저장소로 쓰고, 각 계정의 Volume은 캐시로만 씁니다.
 
 **사람이 한 번 할 일:**
-1. HF에서 조직을 만들고(예: `AskosAILabs-team`) 두 분이 각자 자기 HF 계정으로 가입합니다.
-2. `configs/infra.yaml`의 `hub.namespace`에 그 조직 이름을 넣고 커밋합니다. 모든 계정이 같은 값을 써야 합니다.
-3. 각자 자기 Modal 계정에서 `modal setup`을 하고 `modal secret create huggingface HF_TOKEN=<본인 토큰>`을 만듭니다. 토큰은 조직 저장소에 쓰기 권한이 있어야 합니다.
+1. 공유 HF 계정은 `configs/infra.yaml`의 `hub.namespace: AskosAILabs`로 이미 정해 두었습니다.
+2. `AskosAILabs` 계정에서 **사람마다 따로** 쓰기 토큰을 만듭니다(Settings → Access Tokens, 이름 예: `modal-alice`, `modal-bob`). 같은 토큰 하나를 복사해 나눠 쓰지 않아야, 한 사람의 토큰만 폐기할 수 있습니다.
+3. 각자 자기 Modal 계정에서 `modal setup`을 하고, 2에서 받은 자기 토큰으로 `modal secret create huggingface HF_TOKEN=<토큰>`을 만듭니다.
+   - 잠금은 Modal 계정 이름으로 누가 했는지 구별합니다. `python3 ops.py whoami`에 두 사람의 계정 이름이 같게 나오면, 한 사람은 `export ASKOS_ACCOUNT=<다른 이름>`을 쓰세요.
 4. 계정마다 노트북 00을 한 번씩 돌립니다. `hf_shared_repos`와 `shared_namespace`가 통과하면 준비가 끝난 것입니다.
 
 **함께 돌리기:**

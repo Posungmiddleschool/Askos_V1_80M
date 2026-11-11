@@ -131,8 +131,12 @@ def hf_shared_repos(account):
     log(f"저장: HF 비공개 저장소 {state}, {data} 쓰기·읽기 확인")
     shared = hub.shared_mode()
     note = "" if shared else ("단일 계정 모드: configs/infra.yaml hub.namespace가 비어 있어 토큰 주인 계정을 씁니다. "
-                              "여러 Modal 계정이 함께 쓰려면 HF 조직 이름을 넣으세요(NOTES.md D-23)")
-    return {"ok": ok, "namespace": hub.namespace(api), "shared_mode": shared, "state_repo": state, "data_repo": data,
+                              "여러 Modal 계정이 함께 쓰려면 공유할 HF 계정 이름을 넣으세요(NOTES.md D-23)")
+    user = hub.hf_user(api)
+    ns = hub.namespace(api)
+    if ns != user:   # token of another HF account: it must still be able to write ns (checked above)
+        note = (note + " " if note else "") + f"토큰 주인({user})이 공유 네임스페이스({ns})와 다릅니다"
+    return {"ok": ok, "namespace": ns, "token_user": user, "shared_mode": shared, "state_repo": state, "data_repo": data,
             "account": account, "note": note}
 
 
@@ -140,7 +144,7 @@ def shared_mode_check():
     from common import hub
     if hub.shared_mode():
         return {"ok": True, "namespace": hub.namespace()}
-    return {"ok": False, "note": "hub.namespace가 비어 있음: 계정이 하나뿐이면 정상, 여러 계정이면 HF 조직을 설정해야 함"}
+    return {"ok": False, "note": "hub.namespace가 비어 있음: 계정이 하나뿐이면 정상, 여러 계정이면 공유 HF 계정을 설정해야 함"}
 
 
 def hf_public_read(glob, mb):

@@ -22,8 +22,8 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 | `tests/test_infra.py` | GPU 없이 도는 시험 |
 
 ## 여러 Modal 계정으로 함께 작업할 때 (NOTES.md D-23)
-- 이 프로젝트는 Modal 계정 여러 개가 HF 조직 하나를 함께 씁니다. 에이전트마다 **자기 컴퓨터의 Modal 계정 하나**만 다룹니다.
-- 시작 전에 `python3 ops.py whoami`를 실행해(앱을 한 번도 배포하지 않은 계정이면 잠금 표는 첫 `launch` 뒤부터 보입니다) Modal 계정 이름과 공유 HF 네임스페이스를 확인합니다. `단일 계정 모드`가 나오면 `configs/infra.yaml`의 `hub.namespace`가 비어 있다는 뜻입니다. 계정이 여럿이면 멈추고 사람에게 알립니다.
+- 이 프로젝트는 Modal 계정 여러 개가 HF 계정 하나(`AskosAILabs`)를 함께 씁니다. 에이전트마다 **자기 컴퓨터의 Modal 계정 하나**만 다룹니다.
+- 시작 전에 `python3 ops.py whoami`를 실행해(앱을 한 번도 배포하지 않은 계정이면 잠금 표는 첫 `launch` 뒤부터 보입니다) Modal 계정 이름과 공유 HF 네임스페이스를 확인합니다. 공유 네임스페이스는 `AskosAILabs`여야 합니다. 다른 이름이 나오거나, 다른 사람의 Modal 계정과 이름이 같으면 멈추고 사람에게 알립니다(같으면 사람이 `ASKOS_ACCOUNT`를 정함).
 - `launch`는 공유 잠금 표를 먼저 보여 줍니다. 다른 계정이 실행 중이거나 끝낸 작업은 스스로 빠집니다. **잠금을 지우거나 우회하지 않습니다.**
 - 사람이 소스를 나눠 주면 `--sources`로 그 소스만 맡습니다. 예: `bash launch.sh download --sources fineweb_edu,dclm_top,code`
 - 이미 `done`인 작업을 다시 하는 `--redo-done`은 사람이 승인했을 때만 씁니다.

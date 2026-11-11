@@ -14,10 +14,10 @@ modal:
     main: H100                    # notebooks 08, 09, 10
 
 hub:
-  # Shared HF namespace for every Modal account of the project (NOTES.md D-23). Set this to the HF
-  # organization both people belong to, e.g. "AskosAILabs-team". null = the token owner (single-account mode).
+  # Shared HF namespace for every Modal account of the project (NOTES.md D-23): ONE HF account that all
+  # Modal accounts write to. Each person puts a token of this same HF account into their own Modal secret.
   # Env ASKOS_HF_NAMESPACE overrides it.
-  namespace: null
+  namespace: AskosAILabs
   state_repo: askos-v1-80m-state  # private model repo: locks/, logs, reports, checkpoints
   data_repo: askos-v1-80m-data    # private dataset repo: stage artifacts (raw/<source>/..., later bins)
   log_upload_every_min: 30
