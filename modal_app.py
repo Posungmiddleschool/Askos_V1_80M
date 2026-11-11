@@ -6,8 +6,13 @@ Every stage runs its real code as a subprocess through `_run`, so a crash in the
 the wrapper alive to upload the last log.
 
 Stages in this file so far:
-  setup     (notebook 00) -> setup() on CPU, which spawns gpu_probe_l4 / gpu_probe_l40s / gpu_probe_h100
-  download  (notebook 01) -> download() on CPU, which spawns download_source(name) per source (12 in parallel)
+  setup       (notebook 00) -> setup() on CPU, which spawns gpu_probe_l4 / gpu_probe_l40s / gpu_probe_h100
+  download    (notebook 01) -> download() on CPU, which spawns download_source(name) per source (12 in parallel)
+  hub_status  (any)         -> lock table of the shared HF namespace (ops.py calls it for status/launch)
+
+Several Modal accounts (NOTES.md D-23): each account has its own Volume, used only as a cache. The shared
+truth is one HF namespace (configs/infra.yaml hub.namespace): locks/<key>.json in the state repo decide who
+runs what, and stage artifacts go to the data repo (pushed at the end and every hub.push_every_min).
 """
 import json
 import os
@@ -24,7 +29,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 APP_NAME = "askos-v1-80m"
 VOLUME_NAME = "askos-data"
 HF_SECRET = "huggingface"
-STATE_REPO_NAME = "askos-v1-80m-state"
 REMOTE_ROOT = "/root/askos"
 VOL_PATH = "/vol"
 RUNS = "/root/runs"
@@ -67,15 +71,19 @@ def _redact(s):
     return s
 
 
+def _hub():
+    """common.hub from the project copy inside the container (never imported at deploy time)."""
+    if REMOTE_ROOT not in sys.path:
+        sys.path.insert(0, REMOTE_ROOT)
+    from common import hub
+    return hub
+
+
 def _state_repo():
-    """Private HF repo for all state. None when no token (GPU probes run without the secret)."""
+    """Private HF state repo in the shared namespace. None when no token (GPU probes run without the secret)."""
     if not os.environ.get("HF_TOKEN"):
         return None
-    from huggingface_hub import HfApi
-    api = HfApi()
-    repo = os.environ.get("STATE_REPO") or f"{api.whoami()['name']}/{STATE_REPO_NAME}"
-    api.create_repo(repo, private=True, exist_ok=True)
-    return repo
+    return _hub().ensure_repos()[0]
 
 
 def _upload(local_dir, hub_dir, msg):
@@ -91,11 +99,12 @@ def _upload(local_dir, hub_dir, msg):
     return None
 
 
-def _run(cmd, env, tag, hub_dir=None, vol=None, vol_commit_every_min=5):
+def _run(cmd, env, tag, hub_dir=None, vol=None, vol_commit_every_min=5, hooks=()):
     """Run `cmd` in REMOTE_ROOT. Each line: redact -> print -> log file. Log goes to the Hub every
     LOG_UPLOAD_EVERY_MIN minutes and at the end (only when hub_dir and a token are present).
     With `vol`, the Volume is committed every `vol_commit_every_min` minutes and at the end, so a
-    killed container loses at most a few minutes of downloaded parts."""
+    killed container loses at most a few minutes of downloaded parts.
+    `hooks`: [(every_min, fn)] called periodically in a thread (lock heartbeat, artifact push)."""
     run_dir = f"{RUNS}/{tag}"
     os.makedirs(run_dir, exist_ok=True)
     log_path = f"{run_dir}/log.txt"
@@ -113,10 +122,19 @@ def _run(cmd, env, tag, hub_dir=None, vol=None, vol_commit_every_min=5):
             except Exception as e:  # noqa: BLE001
                 print(_redact(f"[wrapper] volume commit failed: {e}"), flush=True)
 
+    def hook_loop(every, fn):
+        while not stop.wait(every * 60):
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001
+                print(_redact(f"[wrapper] periodic hook failed: {type(e).__name__}: {e}"), flush=True)
+
     if hub_dir:
         threading.Thread(target=periodic, daemon=True).start()
     if vol is not None:
         threading.Thread(target=commit_loop, daemon=True).start()
+    for every, fn in hooks:
+        threading.Thread(target=hook_loop, args=(every, fn), daemon=True).start()
     t0 = time.time()
     with open(log_path, "w", encoding="utf-8") as f:
         p = subprocess.Popen(cmd, cwd=REMOTE_ROOT, env=full_env, stdout=subprocess.PIPE,
@@ -173,7 +191,7 @@ GPU_PROBES = {"L4": gpu_probe_l4, "L40S": gpu_probe_l40s, "H100": gpu_probe_h100
 
 
 def _summary_md(summary):
-    lines = ["# 00 설정 점검 결과", "", f"- 판정: **{summary['verdict']}**",
+    lines = ["# 00 설정 점검 결과", "", f"- 판정: **{summary['verdict']}**", f"- 계정: `{summary.get('account')}`",
              f"- git: `{summary['git_commit']}`", f"- 상태 저장소: `{summary.get('state_repo')}`", ""]
     for name, part in [("CPU", summary["cpu"])] + [(f"GPU {g}", r) for g, r in summary["gpus"].items()]:
         rep = part.get("report") or {}
@@ -192,11 +210,14 @@ def _summary_md(summary):
 
 
 @app.function(cpu=4.0, memory=16384, timeout=3600, secrets=[hf_secret], volumes={VOL_PATH: data_vol})
-def setup(git_commit: str = "unknown", gpus: str = "L4,L40S,H100"):
-    """Notebook 00. CPU checks here, GPU checks in parallel containers, one summary to the Hub."""
+def setup(git_commit: str = "unknown", gpus: str = "L4,L40S,H100", account: str = "unknown"):
+    """Notebook 00, run once per Modal account (each checks its own environment). Results go to
+    00_setup/<account>/ in the shared state repo, so accounts never overwrite each other."""
+    acct = re.sub(r"[^A-Za-z0-9._-]+", "_", account)
     calls = {g: GPU_PROBES[g].spawn(git_commit) for g in gpus.split(",") if g}
     cpu = _run([sys.executable, "-m", "setup_check.cpu", "--report", f"{RUNS}/setup_cpu/report.json",
-                "--vol", VOL_PATH], {"GIT_COMMIT": git_commit}, "setup_cpu", hub_dir="00_setup/cpu")
+                "--vol", VOL_PATH, "--account", account], {"GIT_COMMIT": git_commit}, "setup_cpu",
+               hub_dir=f"00_setup/{acct}/cpu")
     data_vol.commit()
     results = {}
     for g, call in calls.items():
@@ -212,10 +233,10 @@ def setup(git_commit: str = "unknown", gpus: str = "L4,L40S,H100"):
         if results[g].get("report"):
             with open(f"{d}/report.json", "w", encoding="utf-8") as f:
                 json.dump(results[g]["report"], f, ensure_ascii=False, indent=2)
-        _upload(d, f"00_setup/gpu_{g}", f"setup: gpu {g}")
+        _upload(d, f"00_setup/{acct}/gpu_{g}", f"setup: gpu {g} ({acct})")
     ok = lambda r: bool((r.get("report") or {}).get("verdict", {}).get("pass"))  # noqa: E731
     failed = (["cpu"] if not ok(cpu) else []) + [g for g, r in results.items() if not ok(r)]
-    summary = {"stage": "setup", "git_commit": git_commit, "verdict": "통과" if not failed else f"실패: {failed}",
+    summary = {"stage": "setup", "account": account, "git_commit": git_commit, "verdict": "통과" if not failed else f"실패: {failed}",
                "failed": failed, "state_repo": None, "cpu": cpu, "gpus": results}
     try:
         summary["state_repo"] = _state_repo()
@@ -230,7 +251,7 @@ def setup(git_commit: str = "unknown", gpus: str = "L4,L40S,H100"):
         json.dump(slim, f, ensure_ascii=False, indent=2, default=str)
     with open(f"{d}/SETUP.md", "w", encoding="utf-8") as f:
         f.write(_summary_md(summary))
-    hub = _upload(d, "00_setup", "setup: summary")
+    hub = _upload(d, f"00_setup/{acct}", f"setup: summary ({acct})")
     print(f"판정: 00 설정 {summary['verdict']}", flush=True)
     print(f"보고서 → {hub or d}/SETUP.md", flush=True)
     summary["hub"] = hub
@@ -247,21 +268,98 @@ SOURCE_NAMES = ["fineweb_edu", "dclm_top", "code", "korean_web", "papers_books",
                 "geek_debate", "namuwiki", "wikipedia", "hacker_docs", "rebel_classics"]  # = data/sources.yaml
 
 
+def _owner(account):
+    return f"{account}:{_hub().hf_user()}"
+
+
+def _lock_store():
+    hub = _hub()
+    return hub.HFStore(hub.ensure_repos()[0], "model")
+
+
+def _local_state_bytes(name):
+    try:
+        with open(f"{RAW}/{name}/_state.json", encoding="utf-8") as f:
+            st = json.load(f)
+        return sum(x["bytes"] for x in st.get("subs", {}).values()), st.get("target", 0)
+    except (OSError, ValueError):
+        return 0, 0
+
+
 @app.function(cpu=4.0, memory=32768, timeout=24 * 3600, secrets=[hf_secret],
               volumes={VOL_PATH: data_vol})
-def download_source(name: str, git_commit: str = "unknown"):
-    """One source -> /vol/raw/<name>/. Resumable from /vol/raw/<name>/_state.json."""
+def download_source(name: str, git_commit: str = "unknown", account: str = "unknown", redo_done: bool = False):
+    """One source -> /vol/raw/<name>/ -> data repo raw/<name>/. Holds lock download/<name> while running.
+    If the data repo already has more of this source than the local Volume (another account worked on it),
+    the local copy is replaced by the remote one first, so the download resumes instead of restarting."""
+    hub, cfg = _hub(), None
+    sys.path.insert(0, REMOTE_ROOT)
+    from common.config import load_infra
+    cfg = load_infra()["hub"]
+    key, owner, store = f"download/{name}", _owner(account), _lock_store()
+    try:
+        hub.acquire(store, key, owner, cfg["lock_stale_hours"], force=redo_done, info={"git": git_commit})
+    except (hub.LockHeld, hub.AlreadyDone) as e:
+        print(f"[download_source] {name}: 건너뜀 ({e})", flush=True)
+        return {"tag": f"download_{name}", "returncode": 0, "skipped": str(e), "report": None, "log": ""}
+    print(f"[download_source] {name}: 잠금 획득 {owner}", flush=True)
     data_vol.reload()
-    return _run([sys.executable, "-m", "data.download", "source", name, "--out", RAW, "--tmp", "/tmp/askos_dl",
-                 "--report", f"{RUNS}/download_{name}/report.json"],
-                {"GIT_COMMIT": git_commit}, f"download_{name}", hub_dir=f"01_download/{name}", vol=data_vol)
+    remote = hub.remote_json(f"raw/{name}/_state.json")
+    rb = sum(x["bytes"] for x in (remote or {}).get("subs", {}).values())
+    lb, _ = _local_state_bytes(name)
+    if rb > lb:
+        print(f"[download_source] {name}: 원격 {rb / 1e9:.2f} GB > 로컬 {lb / 1e9:.2f} GB, 원격에서 이어 받기", flush=True)
+        import shutil
+        shutil.rmtree(f"{RAW}/{name}", ignore_errors=True)
+        hub.pull_dir(VOL_PATH, f"raw/{name}")
+        data_vol.commit()
+
+    def beat():
+        b, t = _local_state_bytes(name)
+        if not hub.heartbeat(store, key, owner, {"bytes": b, "target": t}):
+            print(f"[download_source] {name}: 잠금을 잃었습니다(오래 멈춰 다른 계정이 인수). 업로드하지 않습니다.", flush=True)
+
+    def push():
+        data_vol.commit()
+        hub.push_dir(VOL_PATH, f"raw/{name}")
+
+    res = _run([sys.executable, "-m", "data.download", "source", name, "--out", RAW, "--tmp", "/tmp/askos_dl",
+                "--report", f"{RUNS}/download_{name}/report.json"],
+               {"GIT_COMMIT": git_commit}, f"download_{name}", hub_dir=f"01_download/{name}", vol=data_vol,
+               hooks=[(cfg["heartbeat_every_min"], beat), (cfg["push_every_min"], push)])
+    try:
+        push()
+        res["pushed"] = True
+    except Exception as e:  # noqa: BLE001
+        res["pushed"] = False
+        res["push_error"] = _redact(f"{type(e).__name__}: {e}")[:500]
+    ok = bool(((res.get("report") or {}).get("verdict") or {}).get("pass")) and res["pushed"]
+    b, t = _local_state_bytes(name)
+    hub.release(store, key, owner, "done" if ok else "failed",
+                {"bytes": b, "target": t, "rc": res.get("returncode"), "pushed": res["pushed"]})
+    print(f"[download_source] {name}: 잠금 해제 ({'done' if ok else 'failed'})", flush=True)
+    return res
+
+
+@app.function(cpu=1.0, memory=2048, timeout=600, secrets=[hf_secret])
+def hub_status(prefix: str = ""):
+    """Locks of the shared namespace (read only). ops.py calls this with .remote() for launch/status."""
+    hub = _hub()
+    sys.path.insert(0, REMOTE_ROOT)
+    from common.config import load_infra
+    store = _lock_store()
+    lks = hub.locks(store, prefix)
+    state, data = hub.repo_ids()
+    return {"namespace": hub.namespace(), "shared": hub.shared_mode(), "state_repo": state, "data_repo": data,
+            "hf_user": hub.hf_user(), "locks": lks, "table": hub.lock_table(lks, stale_hours=load_infra()["hub"]["lock_stale_hours"])}
 
 
 @app.function(cpu=2.0, memory=8192, timeout=24 * 3600, secrets=[hf_secret], volumes={VOL_PATH: data_vol})
-def download(git_commit: str = "unknown", sources: str = "all"):
-    """Notebook 01. Spawns one container per source, waits, then writes reports/D1.md (Volume + Hub)."""
+def download(git_commit: str = "unknown", sources: str = "all", account: str = "unknown", redo_done: bool = False):
+    """Notebook 01. Spawns one container per requested source (each takes its own lock), waits, then writes
+    reports/D1.md over all 12 sources: sources this account did not run are read from the data repo."""
     names = SOURCE_NAMES if sources == "all" else [s for s in sources.split(",") if s]
-    calls = {n: download_source.spawn(n, git_commit) for n in names}
+    calls = {n: download_source.spawn(n, git_commit, account, redo_done) for n in names}
     print(f"[download] {len(calls)}개 소스 병렬 시작: {names}", flush=True)
     runs = {}
     for n, c in calls.items():
@@ -272,6 +370,20 @@ def download(git_commit: str = "unknown", sources: str = "all"):
                        "error": _redact(f"{type(e).__name__}: {e}")[:1000]}
         print(f"[download] 끝: {n} rc={runs[n].get('returncode')} {runs[n].get('error', '')}", flush=True)
     data_vol.reload()
+    hub = _hub()
+    lks = {}
+    try:                                    # reports of sources run by other accounts, and who ran what
+        lks = hub.locks(_lock_store(), "download")
+        missing = [n for n in SOURCE_NAMES if not os.path.exists(f"{RAW}/{n}/_report.json")]
+        if missing:
+            hub.pull_dir(VOL_PATH, "raw", patterns=[f"raw/{n}/_report.json" for n in missing] +
+                         [f"raw/{n}/_manifest.json" for n in missing])
+        os.makedirs(RAW, exist_ok=True)
+        with open(f"{RAW}/_owners.json", "w", encoding="utf-8") as f:
+            json.dump({k.split("/", 1)[1]: {"owner": v["owner"], "status": v["status"]} for k, v in lks.items()}, f)
+        data_vol.commit()
+    except Exception as e:  # noqa: BLE001
+        print(_redact(f"[download] 원격 보고서를 가져오지 못함: {e}"), flush=True)
     rep = _run([sys.executable, "-m", "data.download", "report", "--raw", RAW, "--out", f"{RUNS}/download_report"],
                {"GIT_COMMIT": git_commit}, "download_report", hub_dir="01_download/report")
     d1 = f"{RUNS}/download_report/D1.md"
@@ -283,12 +395,13 @@ def download(git_commit: str = "unknown", sources: str = "all"):
     os.makedirs(f"{RUNS}/reports", exist_ok=True)
     with open(f"{RUNS}/reports/D1.md", "w", encoding="utf-8") as f:
         f.write(md)
-    hub = _upload(f"{RUNS}/reports", "reports", "D1 report")
+    hub_url = _upload(f"{RUNS}/reports", "reports", "D1 report")
     r = rep.get("report") or {}
     verdict = "통과" if (r.get("verdict") or {}).get("pass") else f"미완: {(r.get('verdict') or {}).get('failed')}"
     print(f"판정: 01 다운로드 {verdict}", flush=True)
-    print(f"보고서 → {hub or d1}/D1.md", flush=True)
+    print(f"보고서 → {hub_url or d1}/D1.md", flush=True)
     runs["report"] = rep
-    return {"stage": "download", "git_commit": git_commit, "verdict": verdict, "hub": hub,
+    return {"stage": "download", "account": account, "git_commit": git_commit, "verdict": verdict, "hub": hub_url,
+            "locks_table": hub.lock_table(lks) if lks else "",
             "parts": {n: (x.get("report") or {"error": x.get("error")}) for n, x in runs.items()},
             "runs": runs, "summary_md": md, "summary_file": "D1.md"}

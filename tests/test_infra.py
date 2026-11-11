@@ -66,11 +66,15 @@ def test_modal_app_matches_infra():
     assert c["APP_NAME"] == infra["modal"]["app"]
     assert c["VOLUME_NAME"] == infra["modal"]["volume"]
     assert c["HF_SECRET"] == infra["modal"]["hf_secret"]
-    assert c["STATE_REPO_NAME"] == infra["hub"]["state_repo"]
     assert c["LOG_UPLOAD_EVERY_MIN"] == infra["hub"]["log_upload_every_min"]
     assert c["TOK_PATTERNS"] == TOK_PATTERNS
     o = _module_constants("ops.py")
     assert o["APP_NAME"] == c["APP_NAME"] and o["HF_SECRET"] == c["HF_SECRET"] and o["VOLUME_NAME"] == c["VOLUME_NAME"]
+
+
+def test_ops_source_names_match_manifest():
+    o = _module_constants("ops.py")
+    assert o["SOURCE_NAMES"] == [x["name"] for x in load_sources()] == _module_constants("modal_app.py")["SOURCE_NAMES"]
 
 
 def test_gpu_probes_match_infra():

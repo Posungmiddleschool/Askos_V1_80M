@@ -127,18 +127,20 @@ def source_status(rep):
     return "소진(작은 소스)" if rep.get("all_exhausted") else "미달"
 
 
-def d1_markdown(reps, dl, cfg):
+def d1_markdown(reps, dl, cfg, owners=None):
     lines = ["# D1 — 데이터 다운로드 보고서", "",
              f"- 목표 = (read_gb + l3_gb) x {dl['overshoot']} (구현서 §5.2). 바이트 = UTF-8 텍스트 바이트(압축 전).",
              f"- commercial_safe = {cfg['data']['commercial_safe']}", "- 숫자는 모두 `raw/*/_report.json`에서 복사했습니다.", "",
-             "| 소스 | 목표 GB | 받은 GB | 비율 | 문서 | 판정 | 라이선스 | 연구용 |", "|---|---|---|---|---|---|---|---|"]
+             "| 소스 | 목표 GB | 받은 GB | 비율 | 문서 | 판정 | 라이선스 | 연구용 | 맡은 계정 |", "|---|---|---|---|---|---|---|---|---|"]
+    owners = owners or {}
     tot_t = tot_b = 0
     for r in reps:
         t, b = r.get("target_bytes", 0), r.get("bytes", 0)
         tot_t, tot_b = tot_t + t, tot_b + b
         lines.append(f"| {r['name']} | {t / 1e9:.2f} | {b / 1e9:.2f} | {b / max(t, 1):.0%} | {r.get('docs', 0):,} | "
-                     f"{source_status(r)} | {r.get('license', '')} | {'예' if r.get('research_only') else ''} |")
-    lines += [f"| **합계** | {tot_t / 1e9:.2f} | {tot_b / 1e9:.2f} | {tot_b / max(tot_t, 1):.0%} | | | | |", ""]
+                     f"{source_status(r)} | {r.get('license', '')} | {'예' if r.get('research_only') else ''} | "
+                     f"{(owners.get(r['name']) or {}).get('owner', '')} |")
+    lines += [f"| **합계** | {tot_t / 1e9:.2f} | {tot_b / 1e9:.2f} | {tot_b / max(tot_t, 1):.0%} | | | | | |", ""]
     for r in reps:
         lines += [f"## {r['name']}", ""]
         if r.get("skipped"):
@@ -167,7 +169,7 @@ def report(raw, out):
         reps.append(rep or {"name": s["name"], "missing": True, "target_bytes": target_bytes(s, dl["overshoot"]), "bytes": 0,
                             "failed_subs": ["(no report)"]})
     os.makedirs(out, exist_ok=True)
-    md = d1_markdown(reps, dl, cfg)
+    md = d1_markdown(reps, dl, cfg, read_json(os.path.join(raw, "_owners.json"), {}))
     open(os.path.join(out, "D1.md"), "w", encoding="utf-8").write(md)
     summary = {r["name"]: source_status(r) for r in reps}
     bad = [n for n, st in summary.items() if st in ("일부 실패", "미달")]

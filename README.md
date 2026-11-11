@@ -22,6 +22,21 @@
 | 09 | `09_pretrain_main` | 본 사전학습 24 GPU시간 | H100 | 예정 |
 | 10 | `10_eval_report` | 검증 BPB, `reports/P3.md` | H100 | 예정 |
 
+## 여러 Modal 계정으로 함께 하기 (NOTES.md D-23)
+Modal Volume은 계정끼리 공유되지 않습니다. 그래서 **HF 조직 하나**를 공유 기준 저장소로 쓰고, 각 계정의 Volume은 캐시로만 씁니다.
+
+**사람이 한 번 할 일:**
+1. HF에서 조직을 만들고(예: `AskosAILabs-team`) 두 분이 각자 자기 HF 계정으로 가입합니다.
+2. `configs/infra.yaml`의 `hub.namespace`에 그 조직 이름을 넣고 커밋합니다. 모든 계정이 같은 값을 써야 합니다.
+3. 각자 자기 Modal 계정에서 `modal setup`을 하고 `modal secret create huggingface HF_TOKEN=<본인 토큰>`을 만듭니다. 토큰은 조직 저장소에 쓰기 권한이 있어야 합니다.
+4. 계정마다 노트북 00을 한 번씩 돌립니다. `hf_shared_repos`와 `shared_namespace`가 통과하면 준비가 끝난 것입니다.
+
+**함께 돌리기:**
+- 각 에이전트는 자기 계정으로 `bash launch.sh download`를 실행합니다. 다른 계정이 하고 있거나 끝낸 소스는 공유 잠금 때문에 자동으로 빠집니다.
+- 일을 명시적으로 나누려면 `--sources`를 씁니다. 예: A 계정은 `--sources fineweb_edu,dclm_top,code,korean_web,papers_books,math`, B 계정은 나머지.
+- 한 계정이 멈추면 다른 계정이 HF에 올라간 데서부터 이어받습니다.
+- `python3 ops.py whoami`나 `bash status.sh download`로 모든 계정의 잠금 표를 볼 수 있습니다.
+
 ## 실행 방법 (노트북 00)
 1. **사람이 한 번:** `pip install modal && modal setup`, `modal secret create huggingface HF_TOKEN=<쓰기 토큰>`
 2. `00_setup_and_tests.ipynb`를 위에서부터 실행합니다. 셸에서는 `bash launch.sh setup` 후 `bash status.sh setup`과 같습니다.

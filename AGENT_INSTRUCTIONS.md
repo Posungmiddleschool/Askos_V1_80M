@@ -21,6 +21,13 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 | `data/sources.yaml` | 구현서 §5.1 소스 매니페스트 |
 | `tests/test_infra.py` | GPU 없이 도는 시험 |
 
+## 여러 Modal 계정으로 함께 작업할 때 (NOTES.md D-23)
+- 이 프로젝트는 Modal 계정 여러 개가 HF 조직 하나를 함께 씁니다. 에이전트마다 **자기 컴퓨터의 Modal 계정 하나**만 다룹니다.
+- 시작 전에 `python3 ops.py whoami`를 실행해(앱을 한 번도 배포하지 않은 계정이면 잠금 표는 첫 `launch` 뒤부터 보입니다) Modal 계정 이름과 공유 HF 네임스페이스를 확인합니다. `단일 계정 모드`가 나오면 `configs/infra.yaml`의 `hub.namespace`가 비어 있다는 뜻입니다. 계정이 여럿이면 멈추고 사람에게 알립니다.
+- `launch`는 공유 잠금 표를 먼저 보여 줍니다. 다른 계정이 실행 중이거나 끝낸 작업은 스스로 빠집니다. **잠금을 지우거나 우회하지 않습니다.**
+- 사람이 소스를 나눠 주면 `--sources`로 그 소스만 맡습니다. 예: `bash launch.sh download --sources fineweb_edu,dclm_top,code`
+- 이미 `done`인 작업을 다시 하는 `--redo-done`은 사람이 승인했을 때만 씁니다.
+
 ## 금지 사항
 - `modal run` 금지(셸이 죽으면 작업이 취소됩니다). 항상 `bash launch.sh <stage>`를 씁니다.
 - 한 단계는 **한 번만** 띄웁니다. `--again`은 사람이 승인했을 때만 씁니다.
@@ -93,8 +100,8 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 
 ## 단계
 1. `git pull`
-2. 로컬 시험: `python3 tests/test_infra.py && python3 tests/test_download.py`
-3. `bash launch.sh download` → `spawned fc-...`가 나오면 성공입니다.
+2. 로컬 시험: `python3 tests/test_infra.py && python3 tests/test_download.py && python3 tests/test_hub.py`
+3. `python3 ops.py whoami`로 계정과 공유 네임스페이스를 확인합니다. 그다음 `bash launch.sh download`를 실행합니다. 사람이 소스를 나눠 줬으면 `--sources a,b,...`를 붙입니다. 공유 잠금 표와 "이 계정이 맡을 소스"가 나오고 `spawned fc-...`가 나오면 성공입니다.
 4. 5분 뒤 `bash status.sh download` → `상태: RUNNING`과 소스별 진행률 표가 나옵니다.
 5. **20~30분마다** `bash status.sh download`를 다시 실행합니다. 몇 시간이 걸릴 수 있습니다. 진행률 표의 숫자가 늘고 있으면 정상입니다.
 6. `FINISHED`가 나오면 `runs/01_download/D1.md`를 확인합니다.
@@ -127,6 +134,10 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 | 하위 소스가 몇 MB에서 `소진` (libretexts, pressbooks, oercommons, PEP, kowikibooks) | 정상입니다. 원래 작은 데이터셋이고, 남은 몫은 같은 소스의 큰 하위 소스가 채웁니다 |
 | Volume 용량 부족 | 보고합니다(raw는 압축해서 약 30~40GB 예상) |
 | `ENDED WITH ERROR` | 재시작하지 말고 `runs/01_download/error.txt`를 보고합니다 |
+| `[download_source] <소스>: 건너뜀 (held by ...)` | 다른 계정이 그 소스를 하고 있습니다. 정상이며 보고만 합니다 |
+| `이 계정이 맡을 소스가 남아 있지 않습니다` | 모든 소스를 다른 계정이 끝냈거나 하고 있습니다. 보고합니다 |
+| 잠금 표에 `running(stale)` | 그 계정이 30시간 넘게 하트비트를 보내지 않았습니다. 사람에게 알립니다. 사람이 승인하면 이 계정이 `launch`로 넘겨받을 수 있습니다 |
+| `잠금을 잃었습니다` | 이 계정이 오래 멈춘 사이 다른 계정이 넘겨받았습니다. 보고합니다 |
 
 ## 요약 (보고서 끝에 붙일 문장)
 노트북 01은 Askos-V1-80M의 사전학습 데이터 소스 12개를 Modal Volume에 받았습니다. 소스별 실제 바이트, 리비전, 체크섬, verify 결과는 `reports/D1.md`에 있습니다. 판정이 통과면 노트북 02(정제, 중복 제거, 분할)로 넘어갑니다. **작업이 끝나면 에이전트에게 준 Modal · HF 토큰을 폐기하세요.**

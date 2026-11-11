@@ -14,8 +14,16 @@ modal:
     main: H100                    # notebooks 08, 09, 10
 
 hub:
-  state_repo: askos-v1-80m-state  # private model repo under the token owner: checkpoints, logs, reports
+  # Shared HF namespace for every Modal account of the project (NOTES.md D-23). Set this to the HF
+  # organization both people belong to, e.g. "AskosAILabs-team". null = the token owner (single-account mode).
+  # Env ASKOS_HF_NAMESPACE overrides it.
+  namespace: null
+  state_repo: askos-v1-80m-state  # private model repo: locks/, logs, reports, checkpoints
+  data_repo: askos-v1-80m-data    # private dataset repo: stage artifacts (raw/<source>/..., later bins)
   log_upload_every_min: 30
+  heartbeat_every_min: 30
+  lock_stale_hours: 30            # a running lock without a heartbeat for this long may be taken over
+  push_every_min: 60              # artifacts are pushed to the data repo this often and at the end
 
 probe:
   volume_write_mb: 512

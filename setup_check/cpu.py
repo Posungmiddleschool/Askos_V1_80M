@@ -112,18 +112,35 @@ def hf_auth():
             "note": "role 'read' cannot write checkpoints" if role == "read" else ""}
 
 
-def hf_state_repo(user, repo_name):
+def hf_shared_repos(account):
+    """Shared namespace (NOTES.md D-23): state + data repos exist, are private, and this token can write both."""
+    import re
     from huggingface_hub import HfApi, hf_hub_download
+    from common import hub
     api = HfApi()
-    repo = os.environ.get("STATE_REPO") or f"{user}/{repo_name}"
-    api.create_repo(repo, private=True, exist_ok=True, repo_type="model")
-    private = api.repo_info(repo).private
-    payload = json.dumps({"probe": "setup", "time": time.time()}).encode()
-    api.upload_file(path_or_fileobj=payload, path_in_repo="00_setup/write_test.json", repo_id=repo,
-                    commit_message="setup: write test")
-    back = open(hf_hub_download(repo, "00_setup/write_test.json", force_download=True), "rb").read()
-    log(f"저장: HF 비공개 저장소 {repo} 쓰기·읽기 확인")
-    return {"ok": bool(private) and back == payload, "repo": repo, "private": private, "readback_equal": back == payload}
+    state, data = hub.ensure_repos(api)
+    acct = re.sub(r"[^A-Za-z0-9._-]+", "_", account)
+    payload = json.dumps({"probe": "setup", "account": account, "time": time.time()}).encode()
+    ok = True
+    for repo, rtype in ((state, "model"), (data, "dataset")):
+        path = f"00_setup/{acct}/write_test.json"
+        api.upload_file(path_or_fileobj=payload, path_in_repo=path, repo_id=repo, repo_type=rtype,
+                        commit_message=f"setup: write test ({acct})")
+        back = open(hf_hub_download(repo, path, repo_type=rtype, force_download=True), "rb").read()
+        ok = ok and back == payload and api.repo_info(repo, repo_type=rtype).private
+    log(f"저장: HF 비공개 저장소 {state}, {data} 쓰기·읽기 확인")
+    shared = hub.shared_mode()
+    note = "" if shared else ("단일 계정 모드: configs/infra.yaml hub.namespace가 비어 있어 토큰 주인 계정을 씁니다. "
+                              "여러 Modal 계정이 함께 쓰려면 HF 조직 이름을 넣으세요(NOTES.md D-23)")
+    return {"ok": ok, "namespace": hub.namespace(api), "shared_mode": shared, "state_repo": state, "data_repo": data,
+            "account": account, "note": note}
+
+
+def shared_mode_check():
+    from common import hub
+    if hub.shared_mode():
+        return {"ok": True, "namespace": hub.namespace()}
+    return {"ok": False, "note": "hub.namespace가 비어 있음: 계정이 하나뿐이면 정상, 여러 계정이면 HF 조직을 설정해야 함"}
 
 
 def hf_public_read(glob, mb):
@@ -159,6 +176,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", required=True)
     ap.add_argument("--vol", default="/vol")
+    ap.add_argument("--account", default="unknown")
     a = ap.parse_args()
     info = run_header()
     infra = load_infra()
@@ -172,9 +190,10 @@ def main():
     c.run("modal_volume", lambda: volume(a.vol, pr["volume_write_mb"]))
     ok, auth = c.run("hf_auth", hf_auth)
     if ok:
-        c.run("hf_state_repo", lambda: hf_state_repo(auth["user"], infra["hub"]["state_repo"]))
+        c.run("hf_shared_repos", lambda: hf_shared_repos(a.account))
     else:
-        c.items.append({"name": "hf_state_repo", "required": True, "status": "실패", "detail": {"error": "skipped: hf_auth failed"}})
+        c.items.append({"name": "hf_shared_repos", "required": True, "status": "실패", "detail": {"error": "skipped: hf_auth failed"}})
+    c.run("shared_namespace", shared_mode_check, required=False)
     c.run("hf_public_read", lambda: hf_public_read(pr["hf_public_glob"], pr["hf_read_mb"]))
     c.run("source_hosts", lambda: hosts(pr["hosts"], pr["http_timeout_s"]), required=False)
     sys.exit(0 if c.write(a.report, {"run_info": info}) else 1)
