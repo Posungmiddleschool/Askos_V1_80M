@@ -1,12 +1,14 @@
 """Local launcher used by launch.sh / status.sh. Runs on the machine of whoever drives Modal.
 
-python3 ops.py launch <stage> [--takeover] [--again] [--redo-done] [--sources a,b]
+python3 ops.py launch <stage> [--again] [--takeover] [--redo-done] [--sources a,b]
 python3 ops.py status <stage>
+python3 ops.py stop <stage>                 graceful stop (credits running low): push to HF, locks -> "paused"
 python3 ops.py whoami                       Modal account (profile) and the shared HF namespace
 
-Several Modal accounts, one after another (NOTES.md D-23): account A does everything; when A's free credits
-run out, a human tells account B's agent to run `launch <stage> --takeover`, which takes over A's unfinished
-work units and resumes from the shared HF repos. CALL_ID.<stage> only prevents launching twice from this
+Several Modal accounts, one after another (NOTES.md D-23): account A does everything. When A's credits run low,
+the human tells A's agent `bash stop.sh <stage>`: workers push what they have to HF and release their locks as
+"paused". Then account B's agent runs a plain `bash launch.sh <stage>` and resumes from the shared HF repos.
+`--takeover` is only for the case where A died without being stopped. CALL_ID.<stage> only prevents launching twice from this
 machine; across accounts the locks in the shared HF state repo (common/hub.py) decide.
 
 Exit codes: 0 ok/finished, 1 refused (already running, finished or held by another account),
@@ -23,6 +25,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 APP_NAME = "askos-v1-80m"
 VOLUME_NAME = "askos-data"
 HF_SECRET = "huggingface"
+CONTROL_DICT = "askos-control"
+STOP_WAIT_MIN = 25
 SOURCE_NAMES = ["fineweb_edu", "dclm_top", "code", "korean_web", "papers_books", "math", "stackexchange",
                 "geek_debate", "namuwiki", "wikipedia", "hacker_docs", "rebel_classics"]
 STAGES = {
@@ -142,7 +146,7 @@ def launch(stage, again, sources=None, redo_done=False, takeover=False):
                 if lk and lk["status"] == "done" and not redo_done:
                     skipped.append(f"{s}(완료: {lk['owner']})")
                 elif lk and lk["status"] == "running" and not lk["owner"].startswith(acct + ":") and not takeover:
-                    skipped.append(f"{s}(실행 중: {lk['owner']}. 그 계정의 크레딧이 끝났으면 사람 승인 뒤 --takeover)")
+                    skipped.append(f"{s}(실행 중: {lk['owner']}. 그 계정을 먼저 `bash stop.sh {stage}`로 멈추세요. 이미 죽었으면 사람 승인 뒤 --takeover)")
                 else:
                     free.append(s)
             if skipped:
@@ -157,6 +161,11 @@ def launch(stage, again, sources=None, redo_done=False, takeover=False):
             args["sources"] = free
             print(f"이 계정({acct})이 맡을 소스 {len(free)}개: {free}")
     import modal
+    try:   # a stop flag left from an earlier `stop` on this account must not stop the new run
+        modal.Dict.from_name(CONTROL_DICT, create_if_missing=True)[f"stop/{stage}"] = False
+    except Exception as e:  # noqa: BLE001
+        print(f"멈춤 플래그를 초기화하지 못해 띄우지 않습니다: {type(e).__name__}. 보고하세요.")
+        return 2
     commit = git_commit()
     call = modal.Function.from_name(APP_NAME, fn).spawn(**kwargs_for(stage, commit, acct, args))
     with open(cp, "w") as f:
@@ -250,9 +259,48 @@ def status(stage):
     return 0
 
 
+def stop(stage):
+    """Graceful stop of this account's run of `stage` (e.g. its credits are running low)."""
+    import time
+    import modal
+    cp = call_id_path(stage)
+    if not os.path.exists(cp):
+        print(f"이 컴퓨터에는 CALL_ID.{stage}가 없습니다. 이 계정에서 실행 중인 것이 없습니다.")
+        return 2
+    cid = open(cp).read().strip()
+    state, _ = poll(cid)
+    if state != "RUNNING":
+        print(f"이미 끝났습니다({state}). `bash status.sh {stage}`로 결과를 보세요.")
+        return 0
+    modal.Dict.from_name(CONTROL_DICT, create_if_missing=True)[f"stop/{stage}"] = True
+    print(f"멈춤 요청을 보냈습니다(계정 {account()}). 작업자들이 1분 안에 멈추고, 받은 것을 HF에 올린 뒤 잠금을 paused로 풉니다.")
+    print(f"최대 {STOP_WAIT_MIN}분 기다립니다. 이 셸을 끄지 마세요.")
+    t0 = time.time()
+    while time.time() - t0 < STOP_WAIT_MIN * 60:
+        time.sleep(30)
+        state, res = poll(cid)
+        if state == "FINISHED":
+            out = write_results(stage, res)
+            print(f"멈춤 완료. 판정: {res.get('verdict')}")
+            if res.get("locks_table"):
+                print("[공유 잠금]\n" + res["locks_table"])
+            print(f"결과 파일 → {out}/")
+            print(f"이제 다른 계정의 에이전트가 `bash launch.sh {stage}`로 이어 갈 수 있습니다(--takeover 필요 없음).")
+            return 0
+        if state == "ENDED WITH ERROR":
+            print(f"멈추는 중에 오류로 끝났습니다: {redact(str(res))[:500]}")
+            print(f"다른 계정은 `bash launch.sh {stage}`를 먼저 해 보고, 잠금이 running으로 남아 있으면 사람 승인 뒤 --takeover를 씁니다.")
+            return 4
+        print(f"  ... 멈추는 중 ({(time.time() - t0) / 60:.1f}분)")
+    modal.FunctionCall.from_id(cid).cancel()
+    print(f"{STOP_WAIT_MIN}분 안에 멈추지 않아 강제로 취소했습니다. 마지막 업로드 뒤의 작업(최대 20분)은 잃었을 수 있습니다.")
+    print(f"다른 계정은 `bash launch.sh {stage}`를 먼저 해 보고, 잠금이 running으로 남아 있으면 사람 승인 뒤 --takeover를 씁니다.")
+    return 4
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["launch", "status", "whoami"])
+    ap.add_argument("cmd", choices=["launch", "status", "stop", "whoami"])
     ap.add_argument("stage", nargs="?", choices=sorted(STAGES))
     ap.add_argument("--again", action="store_true", help="relaunch from this machine (only after a human approved)")
     ap.add_argument("--takeover", action="store_true",
@@ -272,7 +320,7 @@ def main():
         if bad:
             ap.error(f"unknown sources: {bad}")
         sys.exit(launch(a.stage, a.again, srcs, a.redo_done, a.takeover))
-    sys.exit(status(a.stage))
+    sys.exit(stop(a.stage) if a.cmd == "stop" else status(a.stage))
 
 
 if __name__ == "__main__":

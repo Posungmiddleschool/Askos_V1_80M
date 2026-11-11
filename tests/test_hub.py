@@ -67,6 +67,15 @@ def test_stale_lock_can_be_taken_over_and_old_owner_notices():
     assert not hub.release(s, "download/code", "acctA:alice", "done", now=33 * H)
 
 
+def test_paused_lock_is_resumed_by_next_account_without_takeover():
+    s = hub.MemStore()
+    hub.acquire(s, "download/code", "acctA:askos", 30, now=0)
+    assert hub.release(s, "download/code", "acctA:askos", "paused", {"bytes": 4}, now=H)   # human: "A, stop"
+    lk = hub.acquire(s, "download/code", "acctB:askos", 30, now=H + 60)                    # plain launch on B
+    assert lk["owner"] == "acctB:askos" and lk["history"][-1]["status"] == "paused" and not lk["took_over_from"]
+    assert "paused" in hub.lock_table({"x": dict(lk, key="x", status="paused")}, now=H, stale_hours=30)
+
+
 def test_takeover_when_credits_run_out():
     s = hub.MemStore()
     hub.acquire(s, "download/code", "acctA:askos", 30, now=0)

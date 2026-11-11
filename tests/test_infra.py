@@ -69,6 +69,7 @@ def test_modal_app_matches_infra():
     assert c["LOG_UPLOAD_EVERY_MIN"] == infra["hub"]["log_upload_every_min"]
     assert c["TOK_PATTERNS"] == TOK_PATTERNS
     o = _module_constants("ops.py")
+    assert o["CONTROL_DICT"] == c["CONTROL_DICT"]
     assert o["APP_NAME"] == c["APP_NAME"] and o["HF_SECRET"] == c["HF_SECRET"] and o["VOLUME_NAME"] == c["VOLUME_NAME"]
 
 

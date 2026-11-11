@@ -14,7 +14,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 |---|---|
 | `00_setup_and_tests.ipynb` | 노트북 진입점. `launch.sh`와 `status.sh`만 부릅니다 |
 | `modal_app.py` | Modal 이미지와 함수: `setup`(CPU)과 `gpu_probe_l4`, `gpu_probe_l40s`, `gpu_probe_h100` |
-| `ops.py`, `launch.sh`, `status.sh` | deploy + spawn 1회(`CALL_ID.<stage>`), 상태 조회, 결과를 `./runs/`에 저장 |
+| `ops.py`, `launch.sh`, `status.sh`, `stop.sh` | deploy + spawn 1회(`CALL_ID.<stage>`), 상태 조회, 결과를 `./runs/`에 저장 |
 | `setup_check/cpu.py`, `setup_check/gpu.py` | 컨테이너 안에서 실제로 도는 점검 코드 |
 | `common/` | 설정 로딩, 토큰 가리기, 로그 형식, 실행 정보 |
 | `configs/askos_80m.yaml`, `smoke.yaml`, `infra.yaml` | 구현서 §3, §14 설정과 인프라 설정 |
@@ -25,8 +25,10 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 - 이 프로젝트는 Modal 계정 여러 개가 HF 계정 하나(`AskosAILabs`)를 함께 씁니다. 에이전트마다 **자기 컴퓨터의 Modal 계정 하나**만 다룹니다.
 - 시작 전에 `python3 ops.py whoami`를 실행해(앱을 한 번도 배포하지 않은 계정이면 잠금 표는 첫 `launch` 뒤부터 보입니다) Modal 계정 이름과 공유 HF 네임스페이스를 확인합니다. 공유 네임스페이스는 `AskosAILabs`여야 합니다. 다른 이름이 나오거나, 다른 사람의 Modal 계정과 이름이 같으면 멈추고 사람에게 알립니다(같으면 사람이 `ASKOS_ACCOUNT`를 정함).
 - `launch`는 공유 잠금 표를 먼저 보여 줍니다. 다른 계정이 실행 중이거나 끝낸 작업은 스스로 빠집니다. **잠금을 지우거나 우회하지 않습니다.**
-- **순서:** 계정 A가 모든 작업을 합니다. A의 크레딧이 떨어지면 A의 에이전트는 **보고만** 하고 멈춥니다. 사람이 승인하면 계정 B의 에이전트가 `bash launch.sh <단계> --takeover`로, A가 하다 멈춘 작업을 HF에 올라간 지점부터 이어받습니다.
-- `--takeover`는 **사람이 "A의 크레딧이 떨어졌으니 B가 이어받아라"라고 말했을 때만** 씁니다. A가 정상적으로 돌고 있는데 쓰면 A의 작업을 빼앗게 됩니다.
+- **순서:** 계정 A의 에이전트가 실행합니다 → 사람이 A의 크레딧을 보다가 "멈춰"라고 하면 A의 에이전트가 `bash stop.sh <단계>`를 실행합니다 → 친구가 계정 B의 에이전트에게 "이어서 실행해"라고 하면 B의 에이전트가 그냥 `bash launch.sh <단계>`를 실행합니다.
+- **"멈춰"라는 말을 들었을 때(계정 A):** `bash stop.sh <단계>`만 실행하고 셸을 끄지 말고 기다립니다(최대 25분). "멈춤 완료"가 나오면 그 출력과 `runs/<단계>/`를 보고하고 끝냅니다. `modal app stop`이나 Ctrl-C로 멈추지 않습니다. 그렇게 멈추면 마지막 업로드가 되지 않습니다.
+- **"이어서 실행해"라는 말을 들었을 때(계정 B):** 처음 실행할 때와 똑같이 `bash launch.sh <단계>`를 실행합니다. A가 끝낸 작업은 빠지고, A가 멈춘 작업은 HF에 올라간 지점부터 이어집니다.
+- `--takeover`는 잠금 표에 A의 작업이 `running`으로 남아 있을 때(A가 stop 없이 죽은 경우)만, **사람이 승인했을 때만** 씁니다. A가 살아 있는데 쓰면 A의 작업을 빼앗습니다.
 - 이미 `done`인 작업을 다시 하는 `--redo-done`은 사람이 승인했을 때만 씁니다.
 
 ## 금지 사항
@@ -102,9 +104,7 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 ## 단계
 1. `git pull`
 2. 로컬 시험: `python3 tests/test_infra.py && python3 tests/test_download.py && python3 tests/test_hub.py`
-3. `python3 ops.py whoami`로 계정과 공유 네임스페이스를 확인합니다. 그다음 실행합니다.
-   - 계정 A(처음): `bash launch.sh download`
-   - 계정 B(사람이 이어받으라고 했을 때만): `bash launch.sh download --takeover`
+3. `python3 ops.py whoami`로 계정과 공유 네임스페이스를 확인합니다. 그다음 `bash launch.sh download`를 실행합니다. 계정 A든 B든 똑같습니다.
 
    공유 잠금 표와 "이 계정이 맡을 소스"가 나오고 `spawned fc-...`가 나오면 성공입니다.
 4. 5분 뒤 `bash status.sh download` → `상태: RUNNING`과 소스별 진행률 표가 나옵니다.
@@ -140,8 +140,11 @@ Askos-V1-80M(구현서 7판: 커서와 새김)을 Modal에서 노트북 11개(00
 | Volume 용량 부족 | 보고합니다(raw는 압축해서 약 30~40GB 예상) |
 | `ENDED WITH ERROR` | 재시작하지 말고 `runs/01_download/error.txt`를 보고합니다 |
 | `[download_source] <소스>: 건너뜀 (held by ...)` | 다른 계정이 그 소스를 하고 있습니다. 보고만 합니다 |
-| 크레딧·결제 관련 오류, 컨테이너가 갑자기 죽음, `rc=-1`이 여러 소스에서 한꺼번에 (계정 A) | 크레딧이 떨어진 것일 수 있습니다. **다시 시도하지 말고** 오류 줄을 그대로 보고합니다. 사람이 계정 B로 이어받게 합니다 |
-| `잠금 획득 ... (이어받음: <A 계정>)` (계정 B) | 정상입니다. A가 하다 멈춘 소스를 이어받았습니다 |
+| 사람이 "멈춰"라고 함 | `bash stop.sh download`를 실행하고 "멈춤 완료"까지 기다린 뒤 보고합니다 |
+| `멈춤 요청을 받았습니다 ... paused로 풉니다` | 정상입니다(stop의 결과) |
+| 크레딧·결제 관련 오류, 컨테이너가 갑자기 죽음, `rc=-1`이 여러 소스에서 한꺼번에 | 크레딧이 떨어졌을 수 있습니다. **다시 시도하지 말고** 오류 줄과 `bash status.sh download` 출력을 그대로 보고합니다 |
+| B에서 launch했는데 `실행 중: <A 계정>`이라며 빠지는 소스가 있음 | A가 stop 없이 죽은 것입니다. 보고합니다. 사람이 승인하면 `bash launch.sh download --takeover` |
+| `잠금 획득 ... (이어받음: <A 계정>)` | `--takeover`로 이어받았다는 뜻입니다 |
 | `이 계정이 맡을 소스가 남아 있지 않습니다` | 모든 소스를 다른 계정이 끝냈거나 하고 있습니다. 보고합니다 |
 | 잠금 표에 `running(stale)` | 그 계정이 30시간 넘게 하트비트를 보내지 않았습니다. 사람에게 알립니다. 사람이 승인하면 이 계정이 `launch`로 넘겨받을 수 있습니다 |
 | `잠금을 잃었습니다 ... 작업을 멈추고 업로드하지 않습니다` | 다른 계정이 `--takeover`로 이어받았습니다. 이 계정은 멈춘 것이 맞습니다. 보고만 합니다 |

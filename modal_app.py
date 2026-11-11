@@ -10,8 +10,10 @@ Stages in this file so far:
   download    (notebook 01) -> download() on CPU, which spawns download_source(name) per source (12 in parallel)
   hub_status  (any)         -> lock table of the shared HF namespace (ops.py calls it for status/launch)
 
-Several Modal accounts, one after another (NOTES.md D-23): account A runs everything; when A's free credits
-run out, account B takes over (`launch --takeover`) and resumes from the shared HF namespace. Each account's
+Several Modal accounts, one after another (NOTES.md D-23): account A runs everything; when A's credits run low a
+human runs `bash stop.sh <stage>` on A (workers push to HF and release their locks as "paused"), then account B
+simply runs `bash launch.sh <stage>` and resumes from the shared HF namespace (`--takeover` only if A died
+without stopping). Each account's
 Volume is only a cache; locks/<key>.json in the state repo say who holds what, and stage artifacts go to the
 data repo (pushed every hub.push_every_min and at the end), so B loses at most that much of A's work.
 """
@@ -56,6 +58,17 @@ image = (
 app = modal.App(APP_NAME, image=image)
 data_vol = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 hf_secret = modal.Secret.from_name(HF_SECRET)   # the only secret the project uses
+# Per-account control flags. `bash stop.sh <stage>` sets "stop/<stage>"; running workers check it every minute,
+# stop their child process, push what they have to HF and release their locks as "paused".
+CONTROL_DICT = "askos-control"
+control = modal.Dict.from_name(CONTROL_DICT, create_if_missing=True)
+
+
+def _stop_requested(stage):
+    try:
+        return bool(control.get(f"stop/{stage}", False))
+    except Exception:  # noqa: BLE001 - a control read failure must not stop the work
+        return False
 
 # Same patterns as common/redact.py (tests/test_infra.py checks they are identical).
 TOK_PATTERNS = [
@@ -302,6 +315,8 @@ def download_source(name: str, git_commit: str = "unknown", account: str = "unkn
     from common.config import load_infra
     cfg = load_infra()["hub"]
     key, owner, store = f"download/{name}", _owner(account), _lock_store()
+    if _stop_requested("download"):
+        return {"tag": f"download_{name}", "returncode": 0, "skipped": "stop requested before start", "report": None, "log": ""}
     try:
         lk = hub.acquire(store, key, owner, cfg["lock_stale_hours"], force=redo_done, info={"git": git_commit},
                          takeover=takeover)
@@ -322,7 +337,15 @@ def download_source(name: str, git_commit: str = "unknown", account: str = "unkn
         data_vol.commit()
 
     lost = threading.Event()
+    stopped = threading.Event()
     holder = {}
+
+    def check_stop():
+        if not stopped.is_set() and _stop_requested("download"):
+            stopped.set()
+            print(f"[download_source] {name}: 멈춤 요청을 받았습니다. 지금까지 받은 것을 HF에 올리고 잠금을 paused로 풉니다.", flush=True)
+            if holder.get("p"):
+                holder["p"].terminate()
 
     def beat():
         b, t = _local_state_bytes(name)
@@ -341,7 +364,8 @@ def download_source(name: str, git_commit: str = "unknown", account: str = "unkn
     res = _run([sys.executable, "-m", "data.download", "source", name, "--out", RAW, "--tmp", "/tmp/askos_dl",
                 "--report", f"{RUNS}/download_{name}/report.json"],
                {"GIT_COMMIT": git_commit}, f"download_{name}", hub_dir=f"01_download/{name}", vol=data_vol,
-               hooks=[(cfg["heartbeat_every_min"], beat), (cfg["push_every_min"], push)], proc_holder=holder)
+               hooks=[(cfg["heartbeat_every_min"], beat), (cfg["push_every_min"], push), (1, check_stop)],
+               proc_holder=holder)
     beat()
     if lost.is_set():
         res["lost_lock"] = True
@@ -354,9 +378,10 @@ def download_source(name: str, git_commit: str = "unknown", account: str = "unkn
         res["push_error"] = _redact(f"{type(e).__name__}: {e}")[:500]
     ok = bool(((res.get("report") or {}).get("verdict") or {}).get("pass")) and res["pushed"]
     b, t = _local_state_bytes(name)
-    hub.release(store, key, owner, "done" if ok else "failed",
-                {"bytes": b, "target": t, "rc": res.get("returncode"), "pushed": res["pushed"]})
-    print(f"[download_source] {name}: 잠금 해제 ({'done' if ok else 'failed'})", flush=True)
+    status = "paused" if stopped.is_set() else ("done" if ok else "failed")
+    hub.release(store, key, owner, status, {"bytes": b, "target": t, "rc": res.get("returncode"), "pushed": res["pushed"]})
+    res["lock_status"] = status
+    print(f"[download_source] {name}: 잠금 해제 ({status}, {b / 1e9:.2f}/{t / 1e9:.2f} GB, HF 업로드 {'됨' if res['pushed'] else '실패'})", flush=True)
     return res
 
 
@@ -418,6 +443,9 @@ def download(git_commit: str = "unknown", sources: str = "all", account: str = "
     hub_url = _upload(f"{RUNS}/reports", "reports", "D1 report")
     r = rep.get("report") or {}
     verdict = "통과" if (r.get("verdict") or {}).get("pass") else f"미완: {(r.get('verdict') or {}).get('failed')}"
+    paused = [n for n, x in runs.items() if x.get("lock_status") == "paused"]
+    if paused:
+        verdict = f"멈춤(사람 요청): {paused}는 HF에 올라간 지점부터 다른 계정이 `bash launch.sh download`로 이어 갑니다"
     print(f"판정: 01 다운로드 {verdict}", flush=True)
     print(f"보고서 → {hub_url or d1}/D1.md", flush=True)
     runs["report"] = rep

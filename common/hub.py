@@ -228,8 +228,9 @@ def heartbeat(store, key, owner, progress=None, now=None):
 
 
 def release(store, key, owner, status, summary=None, now=None):
-    """status: 'done' (nobody needs to run it again) or 'failed' (anyone may retry)."""
-    assert status in ("done", "failed")
+    """status: 'done' (nobody needs to run it again), 'failed' (anyone may retry) or 'paused' (a human stopped
+    this account on purpose, e.g. its credits are running low; the next account resumes it with a plain launch)."""
+    assert status in ("done", "failed", "paused")
 
     def attempt():
         t = now if now is not None else time.time()
